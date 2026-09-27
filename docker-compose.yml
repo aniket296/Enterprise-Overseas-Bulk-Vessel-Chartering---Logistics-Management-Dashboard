@@ -1,0 +1,36 @@
+services:
+  # ==========================================================================
+  # PostgreSQL 16 — Primary database
+  # Cycle 1.1.1: database service only (other services added in Phase 5)
+  # ==========================================================================
+  db:
+    image: postgres:16-alpine
+    container_name: shipping_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       shipping_dev
+      POSTGRES_USER:     shipping_user
+      POSTGRES_PASSWORD: "${DB_PASSWORD:-shipping_dev_secret}"
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      # Auto-run migrations on first container start (alphabetical order)
+      - ./backend/db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U shipping_user -d shipping_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - shipping_net
+
+volumes:
+  pg_data:
+    name: shipping_pg_data
+
+networks:
+  shipping_net:
+    name: shipping_network
+    driver: bridge
