@@ -481,6 +481,55 @@ class VoyagePnLSerializer(serializers.Serializer):
     calculation_basis = serializers.CharField()
 
 
+class PortPerformanceMetricSerializer(serializers.Serializer):
+    """Port-level shipping and demurrage metrics."""
+    port_name = serializers.CharField()
+    voyage_count = serializers.IntegerField()
+    total_loaded_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    total_discharged_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    total_shortage_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    total_gross_freight_usd = serializers.DecimalField(max_digits=14, decimal_places=2)
+    total_demurrage_usd = serializers.DecimalField(max_digits=14, decimal_places=2)
+    total_despatch_usd = serializers.DecimalField(max_digits=14, decimal_places=2)
+    net_laytime_usd = serializers.DecimalField(max_digits=14, decimal_places=2)
+    average_port_hours = serializers.DecimalField(max_digits=8, decimal_places=2)
+
+
+class CargoPerformanceMetricSerializer(serializers.Serializer):
+    """Cargo-level volume and laytime financial metrics."""
+    cargo_type = serializers.CharField()
+    voyage_count = serializers.IntegerField()
+    total_loaded_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    total_gross_freight_usd = serializers.DecimalField(max_digits=14, decimal_places=2)
+    total_demurrage_usd = serializers.DecimalField(max_digits=14, decimal_places=2)
+    total_despatch_usd = serializers.DecimalField(max_digits=14, decimal_places=2)
+    net_laytime_usd = serializers.DecimalField(max_digits=14, decimal_places=2)
+
+
+class FleetAnalyticsSummarySerializer(serializers.Serializer):
+    """Executive summary serializer for fleet-wide historical performance and laytime analytics."""
+    total_voyages = serializers.IntegerField()
+    completed_voyages = serializers.IntegerField()
+    active_voyages = serializers.IntegerField()
+
+    total_loaded_mt = serializers.DecimalField(max_digits=14, decimal_places=3)
+    total_discharged_mt = serializers.DecimalField(max_digits=14, decimal_places=3)
+    total_shortage_mt = serializers.DecimalField(max_digits=14, decimal_places=3)
+    overall_outturn_efficiency_pct = serializers.DecimalField(max_digits=6, decimal_places=2)
+
+    total_gross_freight_usd = serializers.DecimalField(max_digits=16, decimal_places=2)
+    total_demurrage_usd = serializers.DecimalField(max_digits=16, decimal_places=2)
+    total_despatch_usd = serializers.DecimalField(max_digits=16, decimal_places=2)
+    net_laytime_usd = serializers.DecimalField(max_digits=16, decimal_places=2)
+    net_voyage_pnl_usd = serializers.DecimalField(max_digits=16, decimal_places=2)
+    demurrage_freight_ratio_pct = serializers.DecimalField(max_digits=6, decimal_places=2)
+
+    port_breakdown = PortPerformanceMetricSerializer(many=True)
+    cargo_breakdown = CargoPerformanceMetricSerializer(many=True)
+    as_of = serializers.DateTimeField()
+
+
+
 
 
 

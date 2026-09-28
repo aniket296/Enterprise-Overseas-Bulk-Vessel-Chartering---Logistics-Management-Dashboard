@@ -5,6 +5,7 @@ DRF ViewSets for Vessel Voyages, Active Fleet Tracking,
 and Operational Milestone State Machine Transitions.
 """
 
+import datetime
 from decimal import Decimal
 from django.db import transaction, models
 from django.core.exceptions import ValidationError
@@ -37,8 +38,10 @@ from .serializers import (
     PortBerthTimelineReportSerializer,
     BerthAssignmentRequestSerializer,
     VoyagePnLSerializer,
+    FleetAnalyticsSummarySerializer,
 )
 from .pnl_engine import compute_voyage_pnl_from_db, VoyagePnLError
+from .analytics_engine import compute_fleet_analytics
 from .berth_conflict import (
     detect_berth_conflicts_for_window,
     detect_conflicts_for_voyage,
@@ -100,6 +103,7 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
         "sof": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value],
         "laytime": UserRole.all_roles(),
         "pnl": UserRole.all_roles(),
+        "analytics": UserRole.all_roles(),
         "settle": [UserRole.SYSTEM_ADMIN.value, UserRole.FINANCE_OFFICER.value, UserRole.LOGISTICS_AGENT.value],
         "recalculate": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value, UserRole.FINANCE_OFFICER.value],
         "berth_conflicts": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value, UserRole.PROCUREMENT_OFFICER.value],
@@ -939,6 +943,54 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
             )
         serializer = VoyagePnLSerializer(snapshot)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Cycle 2.5.2 — GET /api/v1/voyages/analytics/
+    # Demurrage & Despatch Analytics & Fleet Historical Performance API
+    # ──────────────────────────────────────────────────────────────────────
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="analytics",
+        url_name="fleet-analytics",
+    )
+    def analytics(self, request):
+        """
+        GET /api/v1/voyages/analytics/
+        Aggregate and return historical shipping performance, demurrage vs despatch
+        laytime settlement impact, port efficiency, and cargo outturn metrics.
+
+        Optional Query Parameters:
+          - discharge_port : filter by destination port (case-insensitive substring)
+          - cargo_type     : filter by cargo commodity (exact match)
+          - plant          : filter by charterer plant (case-insensitive substring)
+          - status         : filter by voyage status (SCHEDULED, COMPLETED, etc.)
+          - date_from      : filter voyages with eta_date >= date_from (YYYY-MM-DD)
+          - date_to        : filter voyages with eta_date <= date_to (YYYY-MM-DD)
+        """
+        qs = self.get_queryset()
+
+        date_from = request.query_params.get("date_from")
+        date_to = request.query_params.get("date_to")
+
+        if date_from:
+            try:
+                d_from = datetime.date.fromisoformat(date_from)
+                qs = qs.filter(eta_date__date__gte=d_from)
+            except ValueError:
+                pass
+
+        if date_to:
+            try:
+                d_to = datetime.date.fromisoformat(date_to)
+                qs = qs.filter(eta_date__date__lte=d_to)
+            except ValueError:
+                pass
+
+        summary = compute_fleet_analytics(qs)
+        serializer = FleetAnalyticsSummarySerializer(summary)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
 
 
 
