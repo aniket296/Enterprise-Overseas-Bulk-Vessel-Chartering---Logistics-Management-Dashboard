@@ -33,6 +33,7 @@ from .serializers import (
     DocumentSupersedeSerializer,
 )
 from .vault_service import DocumentVaultService
+from . import tasks as document_tasks
 
 
 class ShippingDocumentViewSet(viewsets.ModelViewSet):
@@ -48,6 +49,7 @@ class ShippingDocumentViewSet(viewsets.ModelViewSet):
         "create": list(DOCUMENT_WRITE_ROLES),
         "approve": list(DOCUMENT_APPROVE_ROLES),
         "supersede": list(DOCUMENT_WRITE_ROLES),
+        "verify": list(DOCUMENT_WRITE_ROLES),
         "destroy": [UserRole.SYSTEM_ADMIN.value],
         "download": list(ALL_READ_ROLES),
         "stats": list(ALL_READ_ROLES),
@@ -132,7 +134,19 @@ class ShippingDocumentViewSet(viewsets.ModelViewSet):
         )
 
         output_serializer = ShippingDocumentSerializer(document, context={"request": request})
-        return Response(output_serializer.data, status=status.HTTP_201_CREATED)
+        response_data = output_serializer.data
+
+        # Dispatch background verification worker for UPLOAD_COMPLETE documents
+        async_task = None
+        if document.verification_status == DocumentVerificationStatus.UPLOAD_COMPLETE.value:
+            task = document_tasks.verify_document_async.delay(str(document.document_id))
+            async_task = {"task_id": task.id, "queue": "documents"}
+
+        if async_task:
+            response_data = dict(response_data)
+            response_data["async_verification"] = async_task
+
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
     def retrieve(self, request, *args, **kwargs):
         """
@@ -260,4 +274,45 @@ class ShippingDocumentViewSet(viewsets.ModelViewSet):
                 "deleted_documents": deleted_count,
             },
             status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["post"])
+    def verify(self, request, pk=None):
+        """
+        Dispatches the document verification Celery task for on-demand SHA-256 digest
+        recomputation and status state machine transition.
+
+        Only UPLOAD_COMPLETE documents can be submitted for (re-)verification.
+        Returns 202 Accepted with the dispatched Celery task ID.
+
+        URL: POST /api/v1/documents/{id}/verify/
+        """
+        document = self.get_object()
+
+        if document.verification_status != DocumentVerificationStatus.UPLOAD_COMPLETE.value:
+            return Response(
+                {
+                    "error": "INVALID_STATUS_FOR_VERIFICATION",
+                    "detail": (
+                        f"Document is in status '{document.verification_status}'. "
+                        f"Only UPLOAD_COMPLETE documents can be submitted for verification."
+                    ),
+                    "current_status": document.verification_status,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        task = document_tasks.verify_document_async.delay(str(document.document_id))
+
+        return Response(
+            {
+                "document_id": str(document.document_id),
+                "message": "Document verification task dispatched.",
+                "async_verification": {
+                    "task_id": task.id,
+                    "queue": "documents",
+                },
+                "current_status": document.verification_status,
+            },
+            status=status.HTTP_202_ACCEPTED,
         )
