@@ -21,6 +21,7 @@ Comprehensive test suite verifying:
 import datetime
 from decimal import Decimal
 import pytest
+from django.utils import timezone
 from rest_framework import status as drf_status
 from rest_framework.test import APIClient
 
@@ -135,7 +136,7 @@ class TestInboundForecastEngine:
 
     def test_pure_depletion_linear_burn(self, db):
         """Without incoming vessels, stock depletes linearly to zero."""
-        today = datetime.date.today()
+        today = timezone.now().date()
         # Opening stock 20,000 MT, burn rate 5,000 MT/day -> 4 days runway
         PlantInventory.objects.create(
             plant_code="BSP",
@@ -176,7 +177,7 @@ class TestInboundForecastEngine:
 
     def test_inbound_replenishment_extends_runway(self, db, sample_contract, sample_vessel):
         """Active voyage scheduled with ETA arrives on ETA + rail lead time."""
-        today = datetime.date.today()
+        today = timezone.now().date()
         # Initial stock: 15,000 MT, burn: 3,000 MT/day -> 5 days baseline
         PlantInventory.objects.create(
             plant_code="BSP",
@@ -219,7 +220,7 @@ class TestInboundForecastEngine:
 
     def test_custom_stock_and_burn_rate_overrides(self, db):
         """Simulation uses custom overrides if supplied."""
-        today = datetime.date.today()
+        today = timezone.now().date()
         forecast = simulate_forward_runway(
             plant_code="RSP",
             material_category="COKING_COAL",
@@ -261,7 +262,7 @@ class TestInboundForecastEngine:
 
     def test_voyages_for_other_plants_are_isolated(self, db, sample_vessel):
         """Voyages dedicated to Rourkela are not included in Bhilai forecast."""
-        today = datetime.date.today()
+        today = timezone.now().date()
         rsp_contract = CharterContract.objects.create(
             contract_reference="SAIL/CP/2026/RSP/01",
             vessel=sample_vessel,
@@ -300,7 +301,7 @@ class TestInboundForecastEngine:
 
     def test_staggered_vessel_arrivals(self, db, sample_vessel):
         """Multiple staggered vessels replenish stock on different days."""
-        today = datetime.date.today()
+        today = timezone.now().date()
         contract1 = CharterContract.objects.create(
             contract_reference="SAIL/CP/STAG/01",
             vessel=sample_vessel,
@@ -358,7 +359,7 @@ class TestInboundForecastEngine:
 
     def test_past_vessel_eta_assigned_to_today(self, db, sample_contract, sample_vessel):
         """Vessels whose ETA + transit lead was in the past land on day 1."""
-        today = datetime.date.today()
+        today = timezone.now().date()
         # ETA was 10 days ago (e.g. discharging or berthed)
         VesselVoyage.objects.create(
             voyage_reference="VOY-PAST-01",
@@ -386,7 +387,7 @@ class TestInboundForecastEngine:
 
     def test_precautionary_breach_detection(self, db):
         """Runway falling between 7 and 14 days sets precautionary status."""
-        today = datetime.date.today()
+        today = timezone.now().date()
         # Opening stock 50,000 MT, burn 4,000 MT/day -> 12.50 days baseline (< 14d)
         forecast = simulate_forward_runway(
             "BSL",
@@ -473,7 +474,7 @@ class TestInboundForecastAPI:
 
     def test_custom_material_category_filter(self, api_client, plant_manager_user):
         """Material category parameter is respected in the forecast."""
-        today = datetime.date.today()
+        today = timezone.now().date()
         PlantInventory.objects.create(
             plant_code="DSP",
             plant_name="Durgapur Steel Plant",
@@ -515,7 +516,7 @@ class TestInboundForecastExtendedScenarios:
 
     def test_minimum_stock_and_trough_date_calculation(self, db):
         """Tracks the lowest point in the stock profile and its date."""
-        today = datetime.date.today()
+        today = timezone.now().date()
         # Stock: 10,000 MT, burn: 2,000 MT/day -> Day 5 hits 0 MT
         forecast = simulate_forward_runway(
             "BSP",
@@ -546,7 +547,7 @@ class TestInboundForecastExtendedScenarios:
 
     def test_custom_rail_transit_lead_days(self, db, sample_contract, sample_vessel):
         """Configuring rail_transit_lead_days shifts the plant receipt date accordingly."""
-        today = datetime.date.today()
+        today = timezone.now().date()
         eta = _utc(today.year, today.month, today.day) + datetime.timedelta(days=1)
         VesselVoyage.objects.create(
             voyage_reference="VOY-LEAD-01",

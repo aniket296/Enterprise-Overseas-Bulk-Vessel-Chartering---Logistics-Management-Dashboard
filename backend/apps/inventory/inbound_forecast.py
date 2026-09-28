@@ -108,6 +108,7 @@ def simulate_forward_runway(
     rail_transit_lead_days: int = DEFAULT_RAIL_TRANSIT_LEAD_DAYS,
     custom_stock_mt: Optional[Decimal] = None,
     custom_burn_rate_mt: Optional[Decimal] = None,
+    as_of_date: Optional[date] = None,
 ) -> PlantForwardRunwayForecast:
     """
     Run forward-looking daily inventory depletion & vessel replenishment simulation.
@@ -183,7 +184,7 @@ def simulate_forward_runway(
     extended_runway = ((current_stock + total_inbound_tonnage) / burn_rate).quantize(_2DP, rounding=ROUND_HALF_UP)
 
     now = timezone.now()
-    start_date = now.date()
+    start_date = as_of_date if as_of_date is not None else now.date()
 
     # Map vessel deliveries to plant stockyard arrival dates: ETA + rail transit
     deliveries_by_date: Dict[date, List[Tuple[str, Decimal]]] = {}

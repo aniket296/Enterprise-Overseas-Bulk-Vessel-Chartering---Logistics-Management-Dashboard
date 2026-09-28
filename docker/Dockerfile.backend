@@ -1,0 +1,36 @@
+# ==============================================================================
+# Dockerfile.backend — Enterprise Overseas Bulk Vessel Logistics Management
+# Python 3.12 Slim base with PostgreSQL client libraries and production dependencies
+# ==============================================================================
+
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive
+
+WORKDIR /app
+
+# Install system dependencies & PostgreSQL client libraries
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libpq-dev \
+    curl \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python requirements
+COPY requirements.txt /app/
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy application source
+COPY backend /app/backend
+COPY pytest.ini conftest.py /app/
+
+WORKDIR /app/backend
+
+EXPOSE 8000
+
+# Default command: run development/production server
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]

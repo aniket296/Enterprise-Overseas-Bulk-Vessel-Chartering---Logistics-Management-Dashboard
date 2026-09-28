@@ -1,24 +1,22 @@
 services:
   # ==========================================================================
-  # PostgreSQL 16 — Primary database
-  # Cycle 1.1.1: database service only (other services added in Phase 5)
+  # 1. PostgreSQL 16 — Primary Relational Store
   # ==========================================================================
   db:
     image: postgres:16-alpine
-    container_name: shipping_postgres
+    container_name: sail_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB:       shipping_dev
-      POSTGRES_USER:     shipping_user
-      POSTGRES_PASSWORD: "${DB_PASSWORD:-shipping_dev_secret}"
+      POSTGRES_DB: "${POSTGRES_DB:-vessel_chartering_db}"
+      POSTGRES_USER: "${POSTGRES_USER:-shipping_user}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-shipping_dev_secret}"
     ports:
       - "5432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
-      # Auto-run migrations on first container start (alphabetical order)
       - ./backend/db/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U shipping_user -d shipping_dev"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-shipping_user} -d ${POSTGRES_DB:-vessel_chartering_db}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -26,9 +24,209 @@ services:
     networks:
       - shipping_net
 
+  # ==========================================================================
+  # 2. Redis 7 — Message Broker & Result Cache
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: sail_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - shipping_net
+
+  # ==========================================================================
+  # 3. MinIO — S3-Compatible Air-Gapped Document Vault
+  # ==========================================================================
+  minio:
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    container_name: sail_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ACCESS_KEY:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${MINIO_SECRET_KEY:-minioadmin}"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - shipping_net
+
+  # ==========================================================================
+  # 4. Backend API Service — Django 6 + Django REST Framework
+  # ==========================================================================
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: sail_backend
+    restart: unless-stopped
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings
+      DJANGO_DEBUG: "${DJANGO_DEBUG:-True}"
+      DJANGO_SECRET_KEY: "${DJANGO_SECRET_KEY:-django-insecure-sih26006-enterprise-vessel-logistics-secret-key-32chars}"
+      DJANGO_ALLOWED_HOSTS: "*"
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: "${POSTGRES_DB:-vessel_chartering_db}"
+      POSTGRES_USER: "${POSTGRES_USER:-shipping_user}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-shipping_dev_secret}"
+      REDIS_URL: "redis://redis:6379/0"
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/1"
+      CELERY_TASK_ALWAYS_EAGER: "false"
+      MINIO_ENDPOINT: "minio:9000"
+      MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY:-minioadmin}"
+      MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:-minioadmin}"
+      MINIO_USE_HTTPS: "False"
+      MINIO_BUCKET_DOCUMENTS: "shipping-documents"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - shipping_net
+
+  # ==========================================================================
+  # 5. Celery Worker — Calculations Queue (Heavy Math & Laytime Settlements)
+  # ==========================================================================
+  celery_worker_calculations:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: sail_celery_calculations
+    restart: unless-stopped
+    command: celery -A config.celery worker -Q calculations -c 4 --loglevel=INFO -n worker_calculations@%h
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: "${POSTGRES_DB:-vessel_chartering_db}"
+      POSTGRES_USER: "${POSTGRES_USER:-shipping_user}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-shipping_dev_secret}"
+      REDIS_URL: "redis://redis:6379/0"
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/1"
+      CELERY_TASK_ALWAYS_EAGER: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - shipping_net
+
+  # ==========================================================================
+  # 6. Celery Worker — Alerts & Document Verification Queues
+  # ==========================================================================
+  celery_worker_alerts:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: sail_celery_alerts
+    restart: unless-stopped
+    command: celery -A config.celery worker -Q alerts,documents,default -c 2 --loglevel=INFO -n worker_alerts@%h
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: "${POSTGRES_DB:-vessel_chartering_db}"
+      POSTGRES_USER: "${POSTGRES_USER:-shipping_user}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-shipping_dev_secret}"
+      REDIS_URL: "redis://redis:6379/0"
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/1"
+      CELERY_TASK_ALWAYS_EAGER: "false"
+      MINIO_ENDPOINT: "minio:9000"
+      MINIO_ACCESS_KEY: "${MINIO_ACCESS_KEY:-minioadmin}"
+      MINIO_SECRET_KEY: "${MINIO_SECRET_KEY:-minioadmin}"
+      MINIO_USE_HTTPS: "False"
+      MINIO_BUCKET_DOCUMENTS: "shipping-documents"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - shipping_net
+
+  # ==========================================================================
+  # 7. Celery Beat — Autonomous Scheduled Watchdog Scheduler
+  # ==========================================================================
+  celery_beat:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: sail_celery_beat
+    restart: unless-stopped
+    command: celery -A config.celery beat --loglevel=INFO
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: "${POSTGRES_DB:-vessel_chartering_db}"
+      POSTGRES_USER: "${POSTGRES_USER:-shipping_user}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-shipping_dev_secret}"
+      REDIS_URL: "redis://redis:6379/0"
+      CELERY_BROKER_URL: "redis://redis:6379/0"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/1"
+      CELERY_TASK_ALWAYS_EAGER: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - shipping_net
+
+  # ==========================================================================
+  # 8. Frontend — Next.js 15 App Router Enterprise Dashboard
+  # ==========================================================================
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    container_name: sail_frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      INTERNAL_API_URL: "http://backend:8000/api/v1"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - shipping_net
+
 volumes:
   pg_data:
     name: shipping_pg_data
+  redis_data:
+    name: shipping_redis_data
+  minio_data:
+    name: shipping_minio_data
 
 networks:
   shipping_net:
