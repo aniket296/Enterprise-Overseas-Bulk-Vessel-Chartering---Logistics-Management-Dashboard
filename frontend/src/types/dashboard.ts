@@ -289,6 +289,79 @@ export interface InboundForecastData {
   generated_at: string;
 }
 
+export interface PlantStarvationProfile {
+  plant_code: string;
+  plant_name: string;
+  plant_location: string;
+  material_category: string;
+  current_stock_mt: string;
+  daily_burn_rate_mt: string;
+  physical_runway_days: string;
+  incoming_vessels_count: number;
+  incoming_tonnage_mt: string;
+  extended_runway_days: string;
+  target_safe_stock_mt: string;
+  deficit_to_safe_stock_mt: string;
+  risk_severity: "CRITICAL_URGENT" | "CRITICAL" | "PRECAUTIONARY" | "WATCH" | "ADEQUATE" | "SURPLUS" | string;
+  is_starvation_risk: boolean;
+}
+
+export interface DiversionOption {
+  voyage_id: string;
+  voyage_reference: string;
+  vessel_name: string;
+  cargo_type: string;
+  quantity_mt: string;
+  current_destination_plant: string;
+  current_discharge_port: string;
+  target_plant: string;
+  target_discharge_port: string;
+  donor_current_runway_days: string;
+  donor_post_diversion_runway_days: string;
+  is_donor_safe: boolean;
+  recipient_post_diversion_runway_days: string;
+  runway_days_gained: string;
+  estimated_diversion_cost_usd: string;
+  feasibility_score: number;
+  recommendation: string;
+}
+
+export interface EmergencyRecharterOption {
+  recommended_vessel_class: string;
+  parcel_size_mt: string;
+  estimated_spot_freight_usd_per_mt: string;
+  total_estimated_freight_usd: string;
+  laycan_urgency_days: number;
+  runway_days_restored: string;
+  target_runway_days: string;
+}
+
+export interface EmergencyInterPlantTransferOption {
+  donor_plant_code: string;
+  donor_plant_name: string;
+  donor_surplus_stock_mt: string;
+  rakes_required: number;
+  total_transfer_tonnage_mt: string;
+  estimated_transit_hours: number;
+  estimated_rail_freight_usd: string;
+  recipient_runway_days_restored: string;
+  is_transfer_viable: boolean;
+}
+
+export interface StarvationMitigationSimulation {
+  target_plant_code: string;
+  target_plant_name: string;
+  material_category: string;
+  starvation_profile: PlantStarvationProfile;
+  primary_strategy: "DIVERSION" | "INTERPLANT_RAIL" | "SPOT_RECHARTER" | "ADEQUATE_NO_ACTION" | string;
+  summary_recommendation: string;
+  diversion_options: DiversionOption[];
+  spot_recharter_option: EmergencyRecharterOption | null;
+  rail_transfer_options: EmergencyInterPlantTransferOption[];
+  all_plants_matrix: PlantStarvationProfile[];
+  simulated_at: string;
+}
+
 export type UserRole =
   | "EXECUTIVE_DIRECTOR"
   | "LOGISTICS_DIRECTOR"

@@ -123,8 +123,11 @@ export const logisticsApi = {
     return fetchWithAuth<ExecutiveDashboardSummary>("/voyages/executive-summary/", { role });
   },
 
-  getStarvationMatrix: (role: UserRole = "LOGISTICS_DIRECTOR", lookaheadDays: number = 30) => {
-    return fetchWithAuth(`/inventory/starvation-matrix/?lookahead_days=${lookaheadDays}`, { role });
+  getStarvationMatrix: (
+    role: UserRole = "LOGISTICS_DIRECTOR",
+    materialCategory: string = "COKING_COAL"
+  ): Promise<import("@/types/dashboard").PlantStarvationProfile[]> => {
+    return fetchWithAuth(`/inventory/starvation-matrix/?material_category=${materialCategory}`, { role });
   },
 
   getInboundForecast: (
@@ -143,7 +146,7 @@ export const logisticsApi = {
     starvingPlant: string,
     materialCategory: string = "COKING_COAL",
     role: UserRole = "LOGISTICS_DIRECTOR"
-  ) => {
+  ): Promise<import("@/types/dashboard").StarvationMitigationSimulation> => {
     return fetchWithAuth(
       `/inventory/simulate-mitigation/?starving_plant=${starvingPlant}&material_category=${materialCategory}`,
       { role }
