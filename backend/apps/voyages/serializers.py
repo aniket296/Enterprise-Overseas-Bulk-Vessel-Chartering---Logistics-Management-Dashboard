@@ -381,4 +381,67 @@ class BerthConflictValidationRequestSerializer(serializers.Serializer):
         return attrs
 
 
+class PortCongestionKPIsSerializer(serializers.Serializer):
+    """Real-time congestion KPIs for a bulk discharge port."""
+    discharge_port = serializers.CharField()
+    total_active_vessels = serializers.IntegerField()
+    vessels_berthed_count = serializers.IntegerField()
+    vessels_at_anchorage_count = serializers.IntegerField()
+    vessels_unassigned_berth_count = serializers.IntegerField()
+    total_cargo_berthed_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    total_cargo_waiting_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    average_anchorage_wait_hours = serializers.DecimalField(max_digits=8, decimal_places=2, allow_null=True)
+    congestion_level = serializers.CharField()
+    as_of = serializers.DateTimeField()
+
+
+class BerthScheduleItemSerializer(serializers.Serializer):
+    """Gantt occupancy block for a single vessel at a berth."""
+    voyage_id = serializers.CharField()
+    voyage_reference = serializers.CharField()
+    vessel_name = serializers.CharField()
+    vessel_imo = serializers.CharField()
+    cargo_type = serializers.CharField()
+    quantity_mt = serializers.DecimalField(max_digits=10, decimal_places=3)
+    voyage_status = serializers.CharField()
+    is_actual = serializers.BooleanField()
+    start_time = serializers.DateTimeField()
+    end_time = serializers.DateTimeField()
+    duration_hours = serializers.DecimalField(max_digits=8, decimal_places=2)
+    has_conflict = serializers.BooleanField()
+    conflicts_with = serializers.ListField(child=serializers.CharField())
+
+
+class AnchorageQueueItemSerializer(serializers.Serializer):
+    """Vessel awaiting a berth at anchorage."""
+    voyage_id = serializers.CharField()
+    voyage_reference = serializers.CharField()
+    vessel_name = serializers.CharField()
+    vessel_imo = serializers.CharField()
+    cargo_type = serializers.CharField()
+    quantity_mt = serializers.DecimalField(max_digits=10, decimal_places=3)
+    voyage_status = serializers.CharField()
+    eta_date = serializers.DateTimeField()
+    ata_date = serializers.DateTimeField(allow_null=True)
+    nor_tendered_at = serializers.DateTimeField(allow_null=True)
+    assigned_berth = serializers.CharField(allow_null=True)
+    waiting_hours = serializers.DecimalField(max_digits=8, decimal_places=2, allow_null=True)
+
+
+class PortBerthTimelineReportSerializer(serializers.Serializer):
+    """Full Gantt timeline and queue report for a port."""
+    discharge_port = serializers.CharField()
+    kpis = PortCongestionKPIsSerializer()
+    berths = serializers.DictField(child=BerthScheduleItemSerializer(many=True))
+    anchorage_queue = AnchorageQueueItemSerializer(many=True)
+    total_conflicts_detected = serializers.IntegerField()
+
+
+class BerthAssignmentRequestSerializer(serializers.Serializer):
+    """Request payload for assigning or moving a voyage's berth."""
+    discharge_berth = serializers.CharField(max_length=60, allow_blank=True, allow_null=True, required=False)
+    force = serializers.BooleanField(default=False, required=False)
+
+
+
 

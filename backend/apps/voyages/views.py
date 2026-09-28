@@ -33,11 +33,20 @@ from .serializers import (
     BerthConflictDetailSerializer,
     BerthConflictReportSerializer,
     BerthConflictValidationRequestSerializer,
+    PortCongestionKPIsSerializer,
+    PortBerthTimelineReportSerializer,
+    BerthAssignmentRequestSerializer,
 )
 from .berth_conflict import (
     detect_berth_conflicts_for_window,
     detect_conflicts_for_voyage,
     sweep_all_active_berth_conflicts,
+)
+from .port_timeline import (
+    get_port_berth_timeline,
+    get_port_congestion_kpis,
+    assign_berth_to_voyage,
+    BerthAllocationError,
 )
 from .state_machine import (
     VoyageStateMachine,
@@ -91,6 +100,9 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
         "settle": [UserRole.SYSTEM_ADMIN.value, UserRole.FINANCE_OFFICER.value, UserRole.LOGISTICS_AGENT.value],
         "berth_conflicts": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value, UserRole.PROCUREMENT_OFFICER.value],
         "voyage_berth_conflicts": UserRole.all_roles(),
+        "berth_timeline": UserRole.all_roles(),
+        "port_congestion": UserRole.all_roles(),
+        "assign_berth": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value, UserRole.PROCUREMENT_OFFICER.value],
     }
 
     def get_queryset(self):
@@ -736,5 +748,105 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
         voyage = self.get_object()
         report = detect_conflicts_for_voyage(voyage)
         return Response(BerthConflictReportSerializer(report).data, status=status.HTTP_200_OK)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Cycle 2.3.2 — GET /api/v1/voyages/berth-timeline/
+    # Gantt-Ready Berth Occupancy Schedule & Anchorage Queue API
+    # ──────────────────────────────────────────────────────────────────────
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="berth-timeline",
+        url_name="berth-timeline",
+    )
+    def berth_timeline(self, request):
+        """
+        GET /api/v1/voyages/berth-timeline/
+          Returns complete Gantt-ready berth occupancy blocks, anchorage queue,
+          and congestion KPIs for a specific discharge port.
+        """
+        port = request.query_params.get("discharge_port", "Haldia")
+        timeline_report = get_port_berth_timeline(discharge_port=port)
+        return Response(PortBerthTimelineReportSerializer(timeline_report).data, status=status.HTTP_200_OK)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Cycle 2.3.2 — GET /api/v1/voyages/port-congestion/
+    # Port Congestion Analytics & Anchorage Waiting KPIs
+    # ──────────────────────────────────────────────────────────────────────
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="port-congestion",
+        url_name="port-congestion",
+    )
+    def port_congestion(self, request):
+        """
+        GET /api/v1/voyages/port-congestion/
+          Returns port congestion KPIs (queue depth, cargo waiting, avg wait hours).
+          Optional query parameter: discharge_port. If omitted, returns all active ports.
+        """
+        port = request.query_params.get("discharge_port")
+        if port:
+            kpis = get_port_congestion_kpis(discharge_port=port)
+            return Response(PortCongestionKPIsSerializer(kpis).data, status=status.HTTP_200_OK)
+
+        # Multi-port overview
+        active_ports = list(
+            VesselVoyage.objects
+            .exclude(voyage_status__in=["COMPLETED", "CANCELLED"])
+            .values_list("discharge_port", flat=True)
+            .distinct()
+        )
+        if not active_ports:
+            active_ports = ["Haldia", "Visakhapatnam", "Paradip", "Dhamra"]
+
+        kpi_list = [get_port_congestion_kpis(p) for p in sorted(set(active_ports))]
+        return Response(PortCongestionKPIsSerializer(kpi_list, many=True).data, status=status.HTTP_200_OK)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Cycle 2.3.2 — POST /api/v1/voyages/{voyage_id}/assign-berth/
+    # Conflict-Guarded Berth Allocation API
+    # ──────────────────────────────────────────────────────────────────────
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="assign-berth",
+        url_name="assign-berth",
+    )
+    def assign_berth(self, request, pk=None):
+        """
+        POST /api/v1/voyages/{voyage_id}/assign-berth/
+          Assign or modify a vessel's discharge berth with temporal conflict guard.
+          Payload: {"discharge_berth": "Berth 4B", "force": false}
+        """
+        voyage = self.get_object()
+        serializer = BerthAssignmentRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        target_berth = serializer.validated_data.get("discharge_berth")
+        force = serializer.validated_data.get("force", False)
+
+        try:
+            updated_voyage, conflict_report = assign_berth_to_voyage(
+                voyage, berth_name=target_berth, force=force
+            )
+        except BerthAllocationError as exc:
+            return Response(
+                {
+                    "error": "BERTH_CONFLICT",
+                    "detail": str(exc),
+                    "conflicts": BerthConflictReportSerializer(exc.conflict_report).data,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        response_data = {
+            "voyage": VesselVoyageSerializer(updated_voyage).data,
+            "assigned_berth": updated_voyage.discharge_berth,
+            "conflict_override": force if (conflict_report and conflict_report.has_conflict) else False,
+            "conflict_report": BerthConflictReportSerializer(conflict_report).data if conflict_report else None,
+        }
+        return Response(response_data, status=status.HTTP_200_OK)
+
 
 
