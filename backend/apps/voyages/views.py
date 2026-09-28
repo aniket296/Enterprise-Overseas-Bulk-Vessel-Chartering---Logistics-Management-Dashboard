@@ -98,6 +98,7 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
         "sof": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value],
         "laytime": UserRole.all_roles(),
         "settle": [UserRole.SYSTEM_ADMIN.value, UserRole.FINANCE_OFFICER.value, UserRole.LOGISTICS_AGENT.value],
+        "recalculate": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value, UserRole.FINANCE_OFFICER.value],
         "berth_conflicts": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value, UserRole.PROCUREMENT_OFFICER.value],
         "voyage_berth_conflicts": UserRole.all_roles(),
         "berth_timeline": UserRole.all_roles(),
@@ -454,6 +455,16 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
         from apps.voyages.models import StatementOfFacts as SOFModel
         refreshed_records = list(SOFModel.objects.filter(sof_id__in=created_ids).order_by("sequence_number"))
 
+        # ------------------------------------------------------------------
+        # Cycle 2.4.2: Asynchronous Laytime Worker Task
+        # Offload laytime balance computation to the 'calculations' Celery queue
+        # ------------------------------------------------------------------
+        from apps.laytime.tasks import recalculate_laytime_async
+        async_task = recalculate_laytime_async.delay(
+            str(voyage.voyage_id),
+            trigger_source="SOF_INGESTION",
+        )
+
         return Response(
             {
                 "voyage_id": voyage.voyage_id,
@@ -463,6 +474,11 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
                     "classified_interruption_pairs": classification_result.classified_count,
                     "stamped_sof_ids": classification_result.updated_sof_ids,
                     "skipped_open_intervals": classification_result.skipped_open_count,
+                },
+                "async_calculation": {
+                    "task_id": async_task.id,
+                    "status": "QUEUED",
+                    "queue": "calculations",
                 },
             },
             status=status.HTTP_201_CREATED,
@@ -684,6 +700,40 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
                 res_status = status.HTTP_201_CREATED
 
         return Response(LaytimeCalculationSerializer(calc_record).data, status=res_status)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Cycle 2.4.2 — POST /api/v1/voyages/{voyage_id}/recalculate/
+    # Asynchronous Laytime Recalculate Worker Action
+    # ──────────────────────────────────────────────────────────────────────
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="recalculate",
+        url_name="recalculate-laytime",
+    )
+    def recalculate(self, request, pk=None):
+        """
+        POST /api/v1/voyages/{voyage_id}/recalculate/
+        Dispatches an asynchronous laytime recalculation task to the Celery 'calculations' worker queue.
+        Offloads batch settlement calculation from the main HTTP thread.
+        """
+        voyage = self.get_object()
+        from apps.laytime.tasks import recalculate_laytime_async
+
+        async_task = recalculate_laytime_async.delay(
+            str(voyage.voyage_id),
+            trigger_source="ON_DEMAND_API",
+        )
+        return Response(
+            {
+                "voyage_id": voyage.voyage_id,
+                "voyage_reference": voyage.voyage_reference,
+                "task_id": async_task.id,
+                "status": "QUEUED",
+                "queue": "calculations",
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
 
     # ──────────────────────────────────────────────────────────────────────
     # Cycle 2.3.1 — GET / POST /api/v1/voyages/berth-conflicts/
