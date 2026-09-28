@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     "corsheaders",
     # Local Apps
     "apps.contracts.apps.ContractsConfig",
+    "apps.voyages.apps.VoyagesConfig",
     "apps.laytime",
 ]
 
