@@ -156,3 +156,74 @@ MINIO_USE_SSL = os.environ.get("MINIO_USE_SSL", "false").lower() == "true"
 MINIO_DEFAULT_BUCKET = os.environ.get("MINIO_DEFAULT_BUCKET", "shipping-documents")
 DOCUMENTS_VAULT_LOCAL_DIR = BASE_DIR / "media" / "documents_vault"
 DOCUMENTS_MAX_FILE_SIZE = 104857600  # 100 MB
+
+# ==============================================================================
+# Celery Broker & Worker Topology Setup (Cycle 2.4.1)
+# Queue Segregation: calculations, documents, alerts, default
+# ==============================================================================
+from kombu import Queue, Exchange
+
+CELERY_BROKER_URL = os.environ.get(
+    "REDIS_URL",
+    os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0"),
+)
+CELERY_RESULT_BACKEND = os.environ.get(
+    "CELERY_RESULT_BACKEND",
+    "redis://localhost:6379/1",
+)
+
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = "UTC"
+CELERY_ENABLE_UTC = True
+
+# Worker Performance & Reliability
+CELERY_TASK_ACKS_LATE = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 300
+CELERY_TASK_SOFT_TIME_LIMIT = 240
+
+# Air-Gapped Test Mode: execute synchronously without external Redis daemon when not explicitly running in production
+CELERY_TASK_ALWAYS_EAGER = os.environ.get("CELERY_TASK_ALWAYS_EAGER", "true").lower() == "true"
+CELERY_TASK_EAGER_PROPAGATES = True
+
+# Exchanges
+calculations_exchange = Exchange("calculations", type="direct")
+documents_exchange = Exchange("documents", type="direct")
+alerts_exchange = Exchange("alerts", type="direct")
+default_exchange = Exchange("default", type="direct")
+
+# Queue Topology
+CELERY_TASK_DEFAULT_QUEUE = "default"
+CELERY_TASK_DEFAULT_EXCHANGE = "default"
+CELERY_TASK_DEFAULT_ROUTING_KEY = "default.general"
+
+CELERY_TASK_QUEUES = (
+    Queue("calculations", calculations_exchange, routing_key="calculations.#"),
+    Queue("documents", documents_exchange, routing_key="documents.#"),
+    Queue("alerts", alerts_exchange, routing_key="alerts.#"),
+    Queue("default", default_exchange, routing_key="default.#"),
+)
+
+# Route Configuration
+CELERY_TASK_ROUTES = {
+    # Calculations Queue (heavy batch laytime math & settlement)
+    "apps.laytime.tasks.*": {"queue": "calculations", "routing_key": "calculations.laytime"},
+    "apps.voyages.tasks.compute_*": {"queue": "calculations", "routing_key": "calculations.voyages"},
+    "apps.voyages.tasks.recalculate_*": {"queue": "calculations", "routing_key": "calculations.voyages"},
+    "calculations.*": {"queue": "calculations", "routing_key": "calculations.general"},
+
+    # Documents Queue (SHA-256 verification & MinIO sync)
+    "apps.documents.tasks.*": {"queue": "documents", "routing_key": "documents.vault"},
+    "documents.*": {"queue": "documents", "routing_key": "documents.general"},
+
+    # Alerts Queue (berth collision watchdog, ETA deviation, stock runway alerts)
+    "apps.inventory.tasks.*": {"queue": "alerts", "routing_key": "alerts.inventory"},
+    "apps.voyages.tasks.alert_*": {"queue": "alerts", "routing_key": "alerts.voyages"},
+    "alerts.*": {"queue": "alerts", "routing_key": "alerts.general"},
+
+    # Default fallback
+    "config.celery.*": {"queue": "default", "routing_key": "default.general"},
+}
