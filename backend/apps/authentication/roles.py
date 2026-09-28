@@ -59,6 +59,19 @@ AUDIT_LOG_ROLES: Set[str] = {
     UserRole.AUDITOR.value,
 }
 
+DOCUMENT_WRITE_ROLES: Set[str] = {
+    UserRole.SYSTEM_ADMIN.value,
+    UserRole.LOGISTICS_AGENT.value,
+    UserRole.PROCUREMENT_OFFICER.value,
+    UserRole.CHARTER_BROKER.value,
+}
+
+DOCUMENT_APPROVE_ROLES: Set[str] = {
+    UserRole.SYSTEM_ADMIN.value,
+    UserRole.AUDITOR.value,
+    UserRole.FINANCE_OFFICER.value,
+}
+
 ALL_READ_ROLES: Set[str] = set(UserRole.all_roles())
 
 
@@ -75,5 +88,8 @@ def get_role_capabilities(role: str) -> Dict[str, bool]:
         "can_settle_laytime": is_admin or role == UserRole.FINANCE_OFFICER.value,
         "can_manage_inventory": is_admin or role == UserRole.PLANT_MANAGER.value,
         "can_view_audit_logs": is_admin or role == UserRole.AUDITOR.value,
+        "can_upload_documents": is_admin or role in DOCUMENT_WRITE_ROLES,
+        "can_verify_documents": is_admin or role in DOCUMENT_APPROVE_ROLES,
         "is_read_only": role in (UserRole.AUDITOR.value, UserRole.READONLY.value),
     }
+

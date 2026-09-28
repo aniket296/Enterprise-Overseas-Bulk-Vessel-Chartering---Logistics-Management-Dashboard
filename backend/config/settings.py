@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     "apps.voyages.apps.VoyagesConfig",
     "apps.laytime",
     "apps.inventory.apps.InventoryConfig",
+    "apps.documents.apps.DocumentsConfig",
 ]
 
 MIDDLEWARE = [
@@ -146,3 +147,12 @@ RBAC_DEFAULT_ANONYMOUS_ROLE = os.environ.get("RBAC_DEFAULT_ANONYMOUS_ROLE", "SYS
 # CORS Configuration for Next.js Frontend
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
+
+# Document Vault & Object Storage (MinIO / S3 / Local Air-Gapped)
+MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "localhost:9000")
+MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "minioadmin")
+MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "minioadmin")
+MINIO_USE_SSL = os.environ.get("MINIO_USE_SSL", "false").lower() == "true"
+MINIO_DEFAULT_BUCKET = os.environ.get("MINIO_DEFAULT_BUCKET", "shipping-documents")
+DOCUMENTS_VAULT_LOCAL_DIR = BASE_DIR / "media" / "documents_vault"
+DOCUMENTS_MAX_FILE_SIZE = 104857600  # 100 MB

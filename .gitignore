@@ -20,6 +20,7 @@ env/
 *.log
 local_settings.py
 db.sqlite3
+media/
 
 # Node / Next.js
 node_modules/
