@@ -20,6 +20,7 @@ from .sof_normalizer import (
     build_existing_interruption_state,
 )
 from .sof_auto_classifier import auto_classify_sof_interruptions
+from .laytime_balance import compute_laytime_balance, LaytimeBalanceError
 from .serializers import (
     VesselVoyageSerializer,
     ActiveFleetVoyageSerializer,
@@ -76,6 +77,7 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
         "destroy": [UserRole.SYSTEM_ADMIN.value],
         "transition": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value],
         "sof": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value],
+        "laytime": UserRole.all_roles(),
     }
 
     def get_queryset(self):
@@ -439,4 +441,79 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
                 },
             },
             status=status.HTTP_201_CREATED,
+        )
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Cycle 2.2.4 — GET /api/v1/voyages/{voyage_id}/laytime/
+    # Live Laytime Balance API
+    # ──────────────────────────────────────────────────────────────────────
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="laytime",
+        url_name="laytime-balance",
+    )
+    def laytime(self, request, pk=None):
+        """
+        Compute and return the live laytime balance for a voyage.
+
+        Runs the full 4-stage engine on demand (read-only, no DB writes):
+          Stage 1 — AllowedLaytimeEngine: contractual allowed hours
+          Stage 2 — TimeSliceDiscretizationEngine: SOF timeline segmentation
+          Stage 3 — InterruptionRulesEvaluator: per-slice counting fractions
+          Stage 4 — LaytimeSettlementEngine: cumulative balance + USD financials
+
+        Returns
+        -------
+        200 OK  — LaytimeBalanceSnapshot serialized to JSON
+        409 CONFLICT — prerequisite data missing (no SOF events, no laytime start, etc.)
+        """
+        voyage = self.get_object()
+
+        try:
+            snapshot = compute_laytime_balance(voyage)
+        except LaytimeBalanceError as exc:
+            return Response(
+                {"error": exc.code, "detail": exc.detail},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        return Response(
+            {
+                "voyage_id": snapshot.voyage_id,
+                "voyage_reference": snapshot.voyage_reference,
+                "outcome": snapshot.outcome,
+                "is_final": snapshot.is_final,
+                "is_indefinite_laytime": snapshot.is_indefinite_laytime,
+
+                # Hours
+                "allowed_hours": str(snapshot.allowed_hours) if snapshot.allowed_hours is not None else None,
+                "counted_hours": str(snapshot.counted_hours),
+                "excepted_hours": str(snapshot.excepted_hours),
+                "balance_hours": str(snapshot.balance_hours),
+                "demurrage_hours": str(snapshot.demurrage_hours),
+                "despatch_hours": str(snapshot.despatch_hours),
+
+                # Financial
+                "gross_demurrage_usd": str(snapshot.gross_demurrage_usd),
+                "gross_despatch_usd": str(snapshot.gross_despatch_usd),
+                "net_settlement_usd": str(snapshot.net_settlement_usd),
+
+                # Timestamps
+                "laytime_commenced_at": snapshot.laytime_commenced_at.isoformat() if snapshot.laytime_commenced_at else None,
+                "demurrage_commenced_at": snapshot.demurrage_commenced_at.isoformat() if snapshot.demurrage_commenced_at else None,
+                "discharge_completed_at": snapshot.discharge_completed_at.isoformat() if snapshot.discharge_completed_at else None,
+                "as_of_timestamp": snapshot.as_of_timestamp.isoformat(),
+
+                # Contract terms (echo for audit)
+                "laytime_terms": snapshot.laytime_terms,
+                "demurrage_rate_usd_per_day": str(snapshot.demurrage_rate_usd_per_day),
+                "despatch_rate_usd_per_day": str(snapshot.despatch_rate_usd_per_day),
+
+                # Audit trail
+                "audit_formula": snapshot.audit_formula,
+                "allowed_laytime_formula": snapshot.allowed_laytime_formula,
+                "slice_count": snapshot.slice_count,
+            },
+            status=status.HTTP_200_OK,
         )
