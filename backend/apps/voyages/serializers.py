@@ -1,11 +1,16 @@
 """
 backend/apps/voyages/serializers.py
 ============================================================
-DRF Serializers for Vessel Voyages & Active Fleet Tracking.
+DRF Serializers for Vessel Voyages, Active Fleet Tracking,
+and Operational Milestone State Machine Transitions.
 """
 
+from typing import List
+from django.utils import timezone
 from rest_framework import serializers
+
 from .models import VesselVoyage
+from apps.laytime.engine.fixture_factory import VoyageStatus
 
 
 class VesselVoyageSerializer(serializers.ModelSerializer):
@@ -19,6 +24,7 @@ class VesselVoyageSerializer(serializers.ModelSerializer):
     shortage_mt = serializers.ReadOnlyField()
     progress_pct = serializers.ReadOnlyField()
     is_active = serializers.ReadOnlyField()
+    allowed_transitions = serializers.SerializerMethodField()
 
     class Meta:
         model = VesselVoyage
@@ -37,6 +43,8 @@ class VesselVoyageSerializer(serializers.ModelSerializer):
             "load_country",
             "load_berth",
             "load_terminal",
+            "etl_date",
+            "atl_date",
             "quantity_loaded_mt",
             "discharge_port",
             "discharge_country",
@@ -46,6 +54,7 @@ class VesselVoyageSerializer(serializers.ModelSerializer):
             "shortage_mt",
             "progress_pct",
             "is_active",
+            "allowed_transitions",
             "eta_date",
             "ata_date",
             "nor_tendered_at",
@@ -54,6 +63,9 @@ class VesselVoyageSerializer(serializers.ModelSerializer):
             "discharge_commenced_at",
             "discharge_completed_at",
             "completed_at",
+            "bl_number",
+            "bl_date",
+            "bl_quantity_mt",
             "last_position_lat",
             "last_position_lon",
             "last_position_updated",
@@ -62,6 +74,9 @@ class VesselVoyageSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["voyage_id", "created_at", "updated_at"]
+
+    def get_allowed_transitions(self, obj: VesselVoyage) -> List[str]:
+        return obj.allowed_transitions
 
 
 class ActiveFleetVoyageSerializer(serializers.ModelSerializer):
@@ -86,6 +101,7 @@ class ActiveFleetVoyageSerializer(serializers.ModelSerializer):
 
     shortage_mt = serializers.ReadOnlyField()
     progress_pct = serializers.ReadOnlyField()
+    allowed_transitions = serializers.SerializerMethodField()
 
     class Meta:
         model = VesselVoyage
@@ -94,6 +110,7 @@ class ActiveFleetVoyageSerializer(serializers.ModelSerializer):
             "voyage_reference",
             "voyage_status",
             "progress_pct",
+            "allowed_transitions",
             # Vessel particulars
             "vessel_id",
             "vessel_name",
@@ -131,3 +148,67 @@ class ActiveFleetVoyageSerializer(serializers.ModelSerializer):
             "speed_over_ground",
             "updated_at",
         ]
+
+    def get_allowed_transitions(self, obj: VesselVoyage) -> List[str]:
+        return obj.allowed_transitions
+
+
+class MilestoneTimestampsSerializer(serializers.Serializer):
+    """Serializer representation of operational milestone timestamps."""
+    eta_date = serializers.DateTimeField(allow_null=True)
+    ata_date = serializers.DateTimeField(allow_null=True)
+    nor_tendered_at = serializers.DateTimeField(allow_null=True)
+    nor_accepted_at = serializers.DateTimeField(allow_null=True)
+    berthed_at = serializers.DateTimeField(allow_null=True)
+    discharge_commenced_at = serializers.DateTimeField(allow_null=True)
+    discharge_completed_at = serializers.DateTimeField(allow_null=True)
+    completed_at = serializers.DateTimeField(allow_null=True)
+
+
+class VoyageTransitionRequestSerializer(serializers.Serializer):
+    """
+    Request payload schema for executing a voyage milestone transition.
+    POST /api/v1/voyages/{voyage_id}/transition/
+    """
+    target_status = serializers.ChoiceField(
+        choices=[(tag.value, tag.name) for tag in VoyageStatus],
+        help_text="Target operational status for the voyage",
+    )
+    timestamp = serializers.DateTimeField(
+        required=False,
+        default=timezone.now,
+        help_text="Timestamp of the transition event (defaults to current UTC time)",
+    )
+    remarks = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Operational remarks or reasons for deviation/cancellation",
+    )
+    nor_accepted_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="Optional NOR accepted timestamp",
+    )
+    quantity_discharged_mt = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        required=False,
+        allow_null=True,
+        help_text="Cumulative or final discharged quantity in MT",
+    )
+
+
+class VoyageTransitionResponseSerializer(serializers.Serializer):
+    """
+    Response schema returning transition result and updated state machine state.
+    """
+    voyage_id = serializers.UUIDField()
+    voyage_reference = serializers.CharField()
+    previous_status = serializers.CharField()
+    current_status = serializers.CharField()
+    progress_pct = serializers.FloatField()
+    allowed_transitions = serializers.ListField(child=serializers.CharField())
+    milestones = MilestoneTimestampsSerializer()
+    remarks = serializers.CharField(allow_blank=True)
+    transitioned_at = serializers.DateTimeField()

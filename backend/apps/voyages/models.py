@@ -7,7 +7,7 @@ Maps directly to PostgreSQL 'shipping.vessel_voyages'.
 
 import uuid
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, List
 from django.db import models
 from django.core.validators import MinValueValidator
 
@@ -40,6 +40,8 @@ class VesselVoyage(models.Model):
     load_country = models.CharField(max_length=2, default="AU")
     load_berth = models.CharField(max_length=60, null=True, blank=True)
     load_terminal = models.CharField(max_length=120, null=True, blank=True)
+    etl_date = models.DateField(null=True, blank=True, help_text="Estimated Time of Loading")
+    atl_date = models.DateTimeField(null=True, blank=True, help_text="Actual Time of Loading (UTC)")
     quantity_loaded_mt = models.DecimalField(
         max_digits=10, decimal_places=3, validators=[MinValueValidator(Decimal("0.001"))]
     )
@@ -63,6 +65,11 @@ class VesselVoyage(models.Model):
     discharge_completed_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
+    # Bill of Lading
+    bl_number = models.CharField(max_length=60, null=True, blank=True)
+    bl_date = models.DateField(null=True, blank=True)
+    bl_quantity_mt = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
+
     # Vessel Position
     last_position_lat = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     last_position_lon = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
@@ -75,6 +82,37 @@ class VesselVoyage(models.Model):
     class Meta:
         db_table = "vessel_voyages"
         ordering = ["-eta_date"]
+
+    def clean(self) -> None:
+        """Enforces status transition legality and milestone chronology."""
+        super().clean()
+        from .state_machine import VoyageStateMachine
+
+        # Check state transition if updating an existing record
+        if self.pk:
+            current = (
+                VesselVoyage.objects.filter(pk=self.pk)
+                .values_list("voyage_status", flat=True)
+                .first()
+            )
+            if current and current != self.voyage_status:
+                VoyageStateMachine.validate_transition(current, self.voyage_status)
+
+        # Validate timestamp chronological monotonicity
+        VoyageStateMachine.validate_timestamp_chronology(self)
+
+    def save(self, *args, **kwargs) -> None:
+        """Runs full_clean before saving unless explicitly skipped."""
+        skip_clean = kwargs.pop("skip_clean", False)
+        if not skip_clean:
+            self.full_clean()
+        super().save(*args, **kwargs)
+
+    @property
+    def allowed_transitions(self) -> List[str]:
+        """Return list of valid target states from current status."""
+        from .state_machine import VoyageStateMachine
+        return VoyageStateMachine.get_allowed_transitions(self.voyage_status)
 
     @property
     def shortage_mt(self) -> Optional[Decimal]:
