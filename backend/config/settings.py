@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "corsheaders",
     # Local Apps
+    "apps.authentication.apps.AuthenticationConfig",
     "apps.contracts.apps.ContractsConfig",
     "apps.voyages.apps.VoyagesConfig",
     "apps.laytime",
@@ -41,6 +42,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "apps.authentication.middleware.AuditSessionContextMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -118,6 +120,13 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+        "rest_framework.authentication.BasicAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "apps.authentication.permissions.RoleBasedAccessControl",
+    ],
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
         "rest_framework.renderers.BrowsableAPIRenderer",
@@ -128,6 +137,10 @@ REST_FRAMEWORK = {
         "rest_framework.parsers.MultiPartParser",
     ],
 }
+
+# RBAC Security Configuration
+RBAC_REQUIRE_AUTHENTICATION = os.environ.get("RBAC_REQUIRE_AUTHENTICATION", "false").lower() == "true"
+RBAC_DEFAULT_ANONYMOUS_ROLE = os.environ.get("RBAC_DEFAULT_ANONYMOUS_ROLE", "SYSTEM_ADMIN")
 
 # CORS Configuration for Next.js Frontend
 CORS_ALLOW_ALL_ORIGINS = True

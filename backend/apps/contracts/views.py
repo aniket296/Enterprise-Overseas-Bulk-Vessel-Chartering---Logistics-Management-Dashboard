@@ -16,6 +16,7 @@ from .serializers import (
     ContractSpecificationSerializer,
 )
 from apps.laytime.engine.fixture_factory import MaritimeFixtureFactory
+from apps.authentication.roles import UserRole
 
 
 class VesselViewSet(viewsets.ModelViewSet):
@@ -29,6 +30,16 @@ class VesselViewSet(viewsets.ModelViewSet):
     search_fields = ["vessel_name", "imo_number", "flag_state", "owner_name"]
     ordering_fields = ["vessel_name", "deadweight_tonnage", "build_year"]
     ordering = ["vessel_name"]
+
+    action_roles = {
+        "list": UserRole.all_roles(),
+        "retrieve": UserRole.all_roles(),
+        "lookup_by_imo": UserRole.all_roles(),
+        "create": [UserRole.SYSTEM_ADMIN.value, UserRole.PROCUREMENT_OFFICER.value],
+        "update": [UserRole.SYSTEM_ADMIN.value, UserRole.PROCUREMENT_OFFICER.value],
+        "partial_update": [UserRole.SYSTEM_ADMIN.value, UserRole.PROCUREMENT_OFFICER.value],
+        "destroy": [UserRole.SYSTEM_ADMIN.value],
+    }
 
     @action(detail=False, methods=["get"], url_path=r"lookup/(?P<imo>\d{7})")
     def lookup_by_imo(self, request, imo=None):
@@ -61,6 +72,17 @@ class CharterContractViewSet(viewsets.ModelViewSet):
         "contract_reference",
     ]
     ordering = ["-created_at"]
+
+    action_roles = {
+        "list": UserRole.all_roles(),
+        "retrieve": UserRole.all_roles(),
+        "specifications": UserRole.all_roles(),
+        "create": [UserRole.SYSTEM_ADMIN.value, UserRole.PROCUREMENT_OFFICER.value],
+        "update": [UserRole.SYSTEM_ADMIN.value, UserRole.PROCUREMENT_OFFICER.value],
+        "partial_update": [UserRole.SYSTEM_ADMIN.value, UserRole.PROCUREMENT_OFFICER.value],
+        "destroy": [UserRole.SYSTEM_ADMIN.value],
+        "seed_baltic_fixtures": [UserRole.SYSTEM_ADMIN.value, UserRole.PROCUREMENT_OFFICER.value],
+    }
 
     def get_queryset(self):
         qs = super().get_queryset()

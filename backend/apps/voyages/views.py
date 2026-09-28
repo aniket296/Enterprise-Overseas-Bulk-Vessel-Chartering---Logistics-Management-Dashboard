@@ -26,6 +26,7 @@ from .state_machine import (
     MilestoneChronologyError,
 )
 from apps.laytime.engine.fixture_factory import VoyageStatus
+from apps.authentication.roles import UserRole
 
 
 class VesselVoyageViewSet(viewsets.ModelViewSet):
@@ -53,6 +54,17 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
     ]
     ordering_fields = ["eta_date", "ata_date", "quantity_loaded_mt", "created_at"]
     ordering = ["-eta_date"]
+
+    action_roles = {
+        "list": UserRole.all_roles(),
+        "retrieve": UserRole.all_roles(),
+        "active_fleet": UserRole.all_roles(),
+        "create": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value, UserRole.PROCUREMENT_OFFICER.value],
+        "update": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value],
+        "partial_update": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value],
+        "destroy": [UserRole.SYSTEM_ADMIN.value],
+        "transition": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value],
+    }
 
     def get_queryset(self):
         qs = super().get_queryset()
