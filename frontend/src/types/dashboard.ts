@@ -78,6 +78,57 @@ export interface ExecutiveDashboardSummary {
   composite_health: CompositeHealthKPIs;
 }
 
+export interface ActiveFleetVoyage {
+  voyage_id: string;
+  voyage_reference: string;
+  voyage_status: string;
+  progress_pct: number;
+  allowed_transitions: string[];
+  vessel_id?: string;
+  vessel_name: string;
+  vessel_imo: string;
+  vessel_size_class: string;
+  vessel_flag_state: string;
+  vessel_dwt: string;
+  contract_id?: string;
+  contract_reference: string;
+  charterer_entity: string;
+  charterer_plant: string;
+  cargo_type: string;
+  laytime_terms: string;
+  allowed_laytime_hours: string;
+  demurrage_rate_usd_day: string;
+  despatch_rate_usd_day: string;
+  load_port: string;
+  discharge_port: string;
+  discharge_berth: string;
+  quantity_loaded_mt: string;
+  quantity_discharged_mt: string;
+  shortage_mt: string;
+  eta_date: string;
+  ata_date: string;
+  nor_tendered_at: string;
+  nor_accepted_at: string;
+  berthed_at: string;
+  last_position_lat?: string;
+  last_position_lon?: string;
+  speed_over_ground?: string;
+  last_position_updated?: string;
+}
+
+export interface ActiveFleetSummary {
+  total_active_voyages: number;
+  total_loaded_mt_underway: string;
+  vessels_in_transit_count: number;
+  vessels_at_anchor_count: number;
+  vessels_at_berth_count: number;
+}
+
+export interface ActiveFleetResponse {
+  summary: ActiveFleetSummary;
+  fleet: ActiveFleetVoyage[];
+}
+
 export type UserRole =
   | "EXECUTIVE_DIRECTOR"
   | "LOGISTICS_DIRECTOR"

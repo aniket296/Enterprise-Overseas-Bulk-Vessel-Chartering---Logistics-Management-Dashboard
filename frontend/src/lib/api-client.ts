@@ -45,6 +45,24 @@ export async function fetchWithAuth<T>(endpoint: string, options: ApiFetchOption
 }
 
 export const logisticsApi = {
+  getActiveFleet: (
+    filters: { discharge_port?: string; cargo_type?: string; status?: string } = {},
+    role: UserRole = "LOGISTICS_DIRECTOR"
+  ): Promise<import("@/types/dashboard").ActiveFleetResponse> => {
+    const params = new URLSearchParams();
+    if (filters.discharge_port && filters.discharge_port !== "ALL") {
+      params.set("discharge_port", filters.discharge_port);
+    }
+    if (filters.cargo_type && filters.cargo_type !== "ALL") {
+      params.set("cargo_type", filters.cargo_type);
+    }
+    if (filters.status && filters.status !== "ALL") {
+      params.set("voyage_status", filters.status);
+    }
+    const query = params.toString() ? `?${params.toString()}` : "";
+    return fetchWithAuth(`/voyages/active/${query}`, { role });
+  },
+
   getExecutiveSummary: (role: UserRole = "LOGISTICS_DIRECTOR"): Promise<ExecutiveDashboardSummary> => {
     return fetchWithAuth<ExecutiveDashboardSummary>("/voyages/executive-summary/", { role });
   },
