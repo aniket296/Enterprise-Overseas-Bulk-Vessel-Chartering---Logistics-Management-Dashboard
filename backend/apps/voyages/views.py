@@ -39,9 +39,11 @@ from .serializers import (
     BerthAssignmentRequestSerializer,
     VoyagePnLSerializer,
     FleetAnalyticsSummarySerializer,
+    ExecutiveDashboardKPIsSerializer,
 )
 from .pnl_engine import compute_voyage_pnl_from_db, VoyagePnLError
 from .analytics_engine import compute_fleet_analytics
+from .executive_dashboard import compute_executive_dashboard_summary
 from .berth_conflict import (
     detect_berth_conflicts_for_window,
     detect_conflicts_for_voyage,
@@ -111,6 +113,7 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
         "berth_timeline": UserRole.all_roles(),
         "port_congestion": UserRole.all_roles(),
         "assign_berth": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value, UserRole.PROCUREMENT_OFFICER.value],
+        "executive_summary": UserRole.all_roles(),
     }
 
     def get_queryset(self):
@@ -990,6 +993,27 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
         summary = compute_fleet_analytics(qs)
         serializer = FleetAnalyticsSummarySerializer(summary)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # GET /api/v1/voyages/executive-summary/
+    # Consolidated Enterprise Logistics KPI Summary Dashboard
+    # ──────────────────────────────────────────────────────────────────────
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="executive-summary",
+        url_name="executive-summary",
+    )
+    def executive_summary(self, request):
+        """
+        GET /api/v1/voyages/executive-summary/
+        Consolidated enterprise logistics summary spanning fleet operations,
+        freight finances, raw material runway, charter fulfillment, and document vault.
+        """
+        kpis = compute_executive_dashboard_summary()
+        serializer = ExecutiveDashboardKPIsSerializer(kpis)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
 
 
 

@@ -529,6 +529,80 @@ class FleetAnalyticsSummarySerializer(serializers.Serializer):
     as_of = serializers.DateTimeField()
 
 
+class PlantSecuritySummarySerializer(serializers.Serializer):
+    """Concise inventory security status for an individual steel plant."""
+    plant_code = serializers.CharField()
+    plant_name = serializers.CharField()
+    lowest_runway_days = serializers.DecimalField(max_digits=8, decimal_places=2, allow_null=True)
+    bottleneck_material = serializers.CharField(allow_null=True)
+    health_status = serializers.CharField()
+
+
+class FleetLogisticsKPIsSerializer(serializers.Serializer):
+    """Vessel movements, active fleet status, and in-transit cargo."""
+    total_active_voyages = serializers.IntegerField()
+    vessels_at_sea = serializers.IntegerField()
+    vessels_in_port = serializers.IntegerField()
+    total_cargo_at_sea_mt = serializers.DecimalField(max_digits=14, decimal_places=3)
+    total_cargo_in_port_mt = serializers.DecimalField(max_digits=14, decimal_places=3)
+    total_completed_voyages = serializers.IntegerField()
+    total_delivered_tonnage_mt = serializers.DecimalField(max_digits=14, decimal_places=3)
+
+
+class FinancialLogisticsKPIsSerializer(serializers.Serializer):
+    """Freight commitments, laytime settlement financials, and voyage P&L."""
+    total_gross_freight_usd = serializers.DecimalField(max_digits=16, decimal_places=2)
+    total_demurrage_incurred_usd = serializers.DecimalField(max_digits=16, decimal_places=2)
+    total_despatch_earned_usd = serializers.DecimalField(max_digits=16, decimal_places=2)
+    net_laytime_impact_usd = serializers.DecimalField(max_digits=16, decimal_places=2)
+    net_voyage_pnl_usd = serializers.DecimalField(max_digits=16, decimal_places=2)
+    demurrage_to_freight_ratio_pct = serializers.DecimalField(max_digits=6, decimal_places=2)
+
+
+class PlantSecurityKPIsSerializer(serializers.Serializer):
+    """Raw material supply chain resilience across SAIL steel plants."""
+    total_plants_evaluated = serializers.IntegerField()
+    plants_at_critical_risk = serializers.IntegerField()
+    plants_at_precautionary_risk = serializers.IntegerField()
+    plants_healthy = serializers.IntegerField()
+    raw_material_security_index_pct = serializers.DecimalField(max_digits=6, decimal_places=2)
+    plant_summaries = PlantSecuritySummarySerializer(many=True)
+
+
+class ContractFulfillmentKPIsSerializer(serializers.Serializer):
+    """Charter party contract fulfillment and carrier performance."""
+    total_active_contracts = serializers.IntegerField()
+    total_nominated_volume_mt = serializers.DecimalField(max_digits=14, decimal_places=3)
+    total_lifted_volume_mt = serializers.DecimalField(max_digits=14, decimal_places=3)
+    volume_fulfillment_rate_pct = serializers.DecimalField(max_digits=6, decimal_places=2)
+    average_carrier_reliability_score = serializers.DecimalField(max_digits=6, decimal_places=2)
+
+
+class ComplianceAndRiskKPIsSerializer(serializers.Serializer):
+    """Document integrity, cryptographic verification, and operational alerts."""
+    total_vault_documents = serializers.IntegerField()
+    verified_documents_count = serializers.IntegerField()
+    quarantined_documents_count = serializers.IntegerField()
+    vault_compliance_rate_pct = serializers.DecimalField(max_digits=6, decimal_places=2)
+    active_berth_conflicts_count = serializers.IntegerField()
+    active_eta_deviations_count = serializers.IntegerField()
+    active_critical_stockout_alerts_count = serializers.IntegerField()
+
+
+class ExecutiveDashboardKPIsSerializer(serializers.Serializer):
+    """Consolidated enterprise executive logistics summary serializer."""
+    composite_enterprise_health_score = serializers.DecimalField(max_digits=6, decimal_places=2)
+    overall_status = serializers.CharField()
+    fleet_logistics = FleetLogisticsKPIsSerializer()
+    financial_performance = FinancialLogisticsKPIsSerializer()
+    plant_security = PlantSecurityKPIsSerializer()
+    contract_fulfillment = ContractFulfillmentKPIsSerializer()
+    compliance_and_risk = ComplianceAndRiskKPIsSerializer()
+    executive_highlights = serializers.ListField(child=serializers.CharField())
+    generated_at = serializers.DateTimeField()
+
+
+
 
 
 
