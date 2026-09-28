@@ -9,6 +9,10 @@ State machine driven by this worker:
   UPLOAD_COMPLETE  →  HASH_VERIFIED   (client hash matches OR no client hash provided)
   UPLOAD_COMPLETE  →  HASH_MISMATCH   (client hash supplied but differs from server digest)
   HASH_MISMATCH    →  QUARANTINED     (automatic quarantine on repeated failure / explicit trigger)
+
+Periodic / fan-out tasks:
+  scan_pending_documents_async  — vault health sweep that fans out individual
+                                   verify_document_async tasks for all UPLOAD_COMPLETE docs
 """
 
 import hashlib
@@ -266,3 +270,55 @@ def quarantine_mismatched_document_async(self, document_id: str, quarantine_note
                 "detail": str(exc),
                 "status": "FAILED",
             }
+
+
+@shared_task(
+    name="apps.documents.tasks.scan_pending_documents_async",
+    queue="documents",
+)
+def scan_pending_documents_async():
+    """
+    Periodic vault health sweep — fans out individual verify_document_async tasks
+    for every ShippingDocument currently stuck in UPLOAD_COMPLETE status.
+
+    This task is the fan-out orchestrator:
+      1. Queries all UPLOAD_COMPLETE documents.
+      2. For each, dispatches verify_document_async(document_id) to the 'documents' queue.
+      3. Returns a manifest of dispatched tasks for observability.
+
+    Designed to be run periodically via Celery Beat (e.g. every 30 minutes) to
+    catch documents that missed their post-upload dispatch (e.g. due to a worker
+    restart or transient error).
+
+    Returns:
+        dict: {scanned_at, pending_count, dispatched_count, dispatched_task_ids}
+    """
+    pending_docs = ShippingDocument.objects.filter(
+        verification_status=DocumentVerificationStatus.UPLOAD_COMPLETE.value
+    ).values_list("document_id", flat=True)
+
+    pending_list = list(pending_docs)
+    dispatched_ids = []
+
+    for doc_id in pending_list:
+        task = verify_document_async.delay(str(doc_id))
+        dispatched_ids.append({"document_id": str(doc_id), "task_id": task.id})
+        logger.info(
+            "scan_pending_documents_async: dispatched verify_document_async for document %s (task %s).",
+            doc_id,
+            task.id,
+        )
+
+    logger.info(
+        "scan_pending_documents_async: sweep complete — %d pending documents dispatched.",
+        len(dispatched_ids),
+    )
+
+    return {
+        "scanned_at": timezone.now().isoformat(),
+        "pending_count": len(pending_list),
+        "dispatched_count": len(dispatched_ids),
+        "dispatched_tasks": dispatched_ids,
+        "status": "DISPATCHED" if dispatched_ids else "VAULT_CLEAN",
+    }
+

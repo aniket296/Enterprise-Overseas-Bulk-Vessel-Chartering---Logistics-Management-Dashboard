@@ -222,6 +222,7 @@ CELERY_TASK_ROUTES = {
     # Alerts Queue (berth collision watchdog, ETA deviation, stock runway alerts)
     "apps.inventory.tasks.*": {"queue": "alerts", "routing_key": "alerts.inventory"},
     "apps.voyages.tasks.alert_*": {"queue": "alerts", "routing_key": "alerts.voyages"},
+    "apps.voyages.tasks.monitor_*": {"queue": "alerts", "routing_key": "alerts.voyages"},
     "alerts.*": {"queue": "alerts", "routing_key": "alerts.general"},
 
     # Default fallback
@@ -240,4 +241,15 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": 900.0,  # every 15 minutes
         "options": {"queue": "alerts", "routing_key": "alerts.voyages"},
     },
+    "periodic-voyage-eta-deviation-monitor": {
+        "task": "apps.voyages.tasks.monitor_voyage_eta_deviations_async",
+        "schedule": 1800.0,  # every 30 minutes
+        "options": {"queue": "alerts", "routing_key": "alerts.voyages"},
+    },
+    "periodic-document-vault-health-scan": {
+        "task": "apps.documents.tasks.scan_pending_documents_async",
+        "schedule": 1800.0,  # every 30 minutes
+        "options": {"queue": "documents", "routing_key": "documents.vault"},
+    },
 }
+

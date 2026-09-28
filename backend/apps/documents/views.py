@@ -50,6 +50,7 @@ class ShippingDocumentViewSet(viewsets.ModelViewSet):
         "approve": list(DOCUMENT_APPROVE_ROLES),
         "supersede": list(DOCUMENT_WRITE_ROLES),
         "verify": list(DOCUMENT_WRITE_ROLES),
+        "trigger_vault_scan": [UserRole.SYSTEM_ADMIN.value],
         "destroy": [UserRole.SYSTEM_ADMIN.value],
         "download": list(ALL_READ_ROLES),
         "stats": list(ALL_READ_ROLES),
@@ -313,6 +314,35 @@ class ShippingDocumentViewSet(viewsets.ModelViewSet):
                     "queue": "documents",
                 },
                 "current_status": document.verification_status,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    @action(detail=False, methods=["post"], url_path="trigger-vault-scan")
+    def trigger_vault_scan(self, request):
+        """
+        Triggers an on-demand vault health scan that fans out SHA-256 verification
+        tasks for every UPLOAD_COMPLETE document in the system.
+
+        Restricted to SYSTEM_ADMIN. Returns 202 Accepted with the dispatched
+        orchestrator task ID.
+
+        URL: POST /api/v1/documents/trigger-vault-scan/
+        """
+        task = document_tasks.scan_pending_documents_async.delay()
+
+        pending_count = ShippingDocument.objects.filter(
+            verification_status=DocumentVerificationStatus.UPLOAD_COMPLETE.value
+        ).count()
+
+        return Response(
+            {
+                "message": "Document vault health scan dispatched.",
+                "async_scan": {
+                    "task_id": task.id,
+                    "queue": "documents",
+                },
+                "pending_documents_in_queue": pending_count,
             },
             status=status.HTTP_202_ACCEPTED,
         )

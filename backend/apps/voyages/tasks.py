@@ -92,3 +92,79 @@ def alert_voyage_status_change(voyage_id: str, old_status: str, new_status: str)
         }
     except Exception as exc:
         return {"voyage_id": voyage_id, "error": str(exc), "status": "FAILED"}
+
+
+@shared_task(
+    name="apps.voyages.tasks.monitor_voyage_eta_deviations_async",
+    queue="alerts",
+)
+def monitor_voyage_eta_deviations_async():
+    """
+    Periodic watchdog that identifies voyages whose ETA has elapsed while the
+    voyage is still in an active (non-terminal) operational status.
+
+    A voyage is considered ETA-deviated when:
+      - voyage_status is in the set of active (non-terminal) statuses, AND
+      - eta_date < now()  (the ETA window has passed), AND
+      - ata_date is NULL  (the vessel has not actually arrived yet)
+
+    Terminal statuses excluded from the scan: COMPLETED, CANCELLED.
+
+    Returns a structured deviation report listing all overdue voyages with
+    the deviation magnitude in hours, suitable for alert dispatch and
+    downstream notification integration.
+
+    Routed to 'alerts' queue.
+    """
+    from apps.voyages.models import VesselVoyage
+    from apps.laytime.engine.fixture_factory import VoyageStatus
+
+    ACTIVE_STATUSES = [
+        VoyageStatus.SCHEDULED.value,
+        VoyageStatus.IN_TRANSIT.value,
+        VoyageStatus.ARRIVED.value,
+        VoyageStatus.NOR_TENDERED.value,
+        VoyageStatus.BERTHED.value,
+        VoyageStatus.COMMENCING.value,
+        VoyageStatus.DISCHARGING.value,
+    ]
+
+    now = timezone.now()
+
+    overdue_voyages = (
+        VesselVoyage.objects.select_related("vessel", "contract")
+        .filter(
+            voyage_status__in=ACTIVE_STATUSES,
+            eta_date__lt=now,
+            ata_date__isnull=True,
+        )
+        .order_by("eta_date")
+    )
+
+    deviations = []
+    for voyage in overdue_voyages:
+        deviation_hours = (now - voyage.eta_date).total_seconds() / 3600.0
+        deviations.append({
+            "voyage_id": str(voyage.voyage_id),
+            "voyage_reference": voyage.voyage_reference,
+            "vessel_name": voyage.vessel.vessel_name,
+            "discharge_port": voyage.discharge_port,
+            "voyage_status": voyage.voyage_status,
+            "eta_date": voyage.eta_date.isoformat(),
+            "deviation_hours": round(deviation_hours, 2),
+            "severity": (
+                "CRITICAL" if deviation_hours >= 72
+                else "HIGH" if deviation_hours >= 24
+                else "MODERATE" if deviation_hours >= 6
+                else "LOW"
+            ),
+        })
+
+    return {
+        "scanned_at": now.isoformat(),
+        "total_active_voyages_scanned": overdue_voyages.count(),
+        "deviated_voyage_count": len(deviations),
+        "deviations": deviations,
+        "status": "DEVIATIONS_DETECTED" if deviations else "ALL_ON_SCHEDULE",
+    }
+
