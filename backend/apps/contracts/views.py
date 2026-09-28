@@ -14,6 +14,12 @@ from .serializers import (
     VesselSerializer,
     CharterContractSerializer,
     ContractSpecificationSerializer,
+    ContractPerformanceSerializer,
+    CarrierScorecardSerializer,
+)
+from .scorecard_engine import (
+    compute_contract_performance,
+    compute_carrier_scorecards,
 )
 from apps.laytime.engine.fixture_factory import MaritimeFixtureFactory
 from apps.authentication.roles import UserRole
@@ -77,6 +83,8 @@ class CharterContractViewSet(viewsets.ModelViewSet):
         "list": UserRole.all_roles(),
         "retrieve": UserRole.all_roles(),
         "specifications": UserRole.all_roles(),
+        "performance": UserRole.all_roles(),
+        "carrier_scorecard": UserRole.all_roles(),
         "create": [UserRole.SYSTEM_ADMIN.value, UserRole.PROCUREMENT_OFFICER.value],
         "update": [UserRole.SYSTEM_ADMIN.value, UserRole.PROCUREMENT_OFFICER.value],
         "partial_update": [UserRole.SYSTEM_ADMIN.value, UserRole.PROCUREMENT_OFFICER.value],
@@ -179,3 +187,52 @@ class CharterContractViewSet(viewsets.ModelViewSet):
             {"message": f"Successfully seeded {created_count} Baltic Exchange fixture contract(s).", "total_scenarios": len(scenarios)},
             status=status.HTTP_201_CREATED,
         )
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Cycle 2.5.3 — GET /api/v1/contracts/{id}/performance/
+    # Charter Contract Fulfillment Scorecard
+    # ──────────────────────────────────────────────────────────────────────
+    @action(detail=True, methods=["get"], url_path="performance")
+    def performance(self, request, pk=None):
+        """
+        Derive contract commitment fulfillment, lifted volume vs tolerance band,
+        remaining commitments, and financial laytime summary.
+        GET /api/v1/contracts/{id}/performance/
+        """
+        contract = self.get_object()
+        snapshot = compute_contract_performance(contract)
+        serializer = ContractPerformanceSerializer(snapshot)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Cycle 2.5.3 — GET /api/v1/contracts/carrier-scorecard/
+    # Carrier / Vessel Owner Reliability Ranking Scorecard
+    # ──────────────────────────────────────────────────────────────────────
+    @action(detail=False, methods=["get"], url_path="carrier-scorecard")
+    def carrier_scorecard(self, request):
+        """
+        Ranked performance and reliability scorecard across all vessel owners / carriers.
+        GET /api/v1/contracts/carrier-scorecard/
+
+        Optional Query Parameters:
+          - owner       : filter by carrier/owner name (case-insensitive substring)
+          - min_voyages : filter out carriers with fewer voyages (integer)
+        """
+        scorecards = compute_carrier_scorecards()
+
+        owner_param = request.query_params.get("owner")
+        min_voyages_param = request.query_params.get("min_voyages")
+
+        if owner_param:
+            scorecards = [s for s in scorecards if owner_param.lower() in s.owner_name.lower()]
+
+        if min_voyages_param:
+            try:
+                min_v = int(min_voyages_param)
+                scorecards = [s for s in scorecards if s.total_voyages >= min_v]
+            except ValueError:
+                pass
+
+        serializer = CarrierScorecardSerializer(scorecards, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
