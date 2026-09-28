@@ -206,3 +206,82 @@ class PlantForwardRunwayForecastSerializer(serializers.Serializer):
     inbound_vessels = InTransitCargoContributionSerializer(many=True)
     generated_at = serializers.DateTimeField()
 
+
+class PlantStarvationProfileSerializer(serializers.Serializer):
+    """Individual plant raw material status and starvation vulnerability."""
+    plant_code = serializers.CharField()
+    plant_name = serializers.CharField()
+    plant_location = serializers.CharField()
+    material_category = serializers.CharField()
+    current_stock_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    daily_burn_rate_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    physical_runway_days = serializers.DecimalField(max_digits=8, decimal_places=2)
+    incoming_vessels_count = serializers.IntegerField()
+    incoming_tonnage_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    extended_runway_days = serializers.DecimalField(max_digits=8, decimal_places=2)
+    target_safe_stock_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    deficit_to_safe_stock_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    risk_severity = serializers.CharField()
+    is_starvation_risk = serializers.BooleanField()
+
+
+class DiversionOptionSerializer(serializers.Serializer):
+    """Simulated diversion of an active in-transit vessel to the starving plant."""
+    voyage_id = serializers.CharField()
+    voyage_reference = serializers.CharField()
+    vessel_name = serializers.CharField()
+    cargo_type = serializers.CharField()
+    quantity_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    current_destination_plant = serializers.CharField()
+    current_discharge_port = serializers.CharField()
+    target_plant = serializers.CharField()
+    target_discharge_port = serializers.CharField()
+    donor_current_runway_days = serializers.DecimalField(max_digits=8, decimal_places=2)
+    donor_post_diversion_runway_days = serializers.DecimalField(max_digits=8, decimal_places=2)
+    is_donor_safe = serializers.BooleanField()
+    recipient_post_diversion_runway_days = serializers.DecimalField(max_digits=8, decimal_places=2)
+    runway_days_gained = serializers.DecimalField(max_digits=8, decimal_places=2)
+    estimated_diversion_cost_usd = serializers.DecimalField(max_digits=12, decimal_places=2)
+    feasibility_score = serializers.IntegerField()
+    recommendation = serializers.CharField()
+
+
+class EmergencyRecharterOptionSerializer(serializers.Serializer):
+    """Spot chartering recommendation to eliminate plant stock deficit."""
+    recommended_vessel_class = serializers.CharField()
+    parcel_size_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    estimated_spot_freight_usd_per_mt = serializers.DecimalField(max_digits=8, decimal_places=2)
+    total_estimated_freight_usd = serializers.DecimalField(max_digits=14, decimal_places=2)
+    laycan_urgency_days = serializers.IntegerField()
+    runway_days_restored = serializers.DecimalField(max_digits=8, decimal_places=2)
+    target_runway_days = serializers.DecimalField(max_digits=8, decimal_places=2)
+
+
+class EmergencyInterPlantTransferOptionSerializer(serializers.Serializer):
+    """Rail rake transfer from an adjacent surplus SAIL steel plant."""
+    donor_plant_code = serializers.CharField()
+    donor_plant_name = serializers.CharField()
+    donor_surplus_stock_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    rakes_required = serializers.IntegerField()
+    total_transfer_tonnage_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    estimated_transit_hours = serializers.IntegerField()
+    estimated_rail_freight_usd = serializers.DecimalField(max_digits=12, decimal_places=2)
+    recipient_runway_days_restored = serializers.DecimalField(max_digits=8, decimal_places=2)
+    is_transfer_viable = serializers.BooleanField()
+
+
+class StarvationMitigationSimulationSerializer(serializers.Serializer):
+    """Consolidated emergency response and mitigation plan for a plant."""
+    target_plant_code = serializers.CharField()
+    target_plant_name = serializers.CharField()
+    material_category = serializers.CharField()
+    starvation_profile = PlantStarvationProfileSerializer()
+    primary_strategy = serializers.CharField()
+    summary_recommendation = serializers.CharField()
+    diversion_options = DiversionOptionSerializer(many=True)
+    spot_recharter_option = EmergencyRecharterOptionSerializer(allow_null=True)
+    rail_transfer_options = EmergencyInterPlantTransferOptionSerializer(many=True)
+    all_plants_matrix = PlantStarvationProfileSerializer(many=True)
+    simulated_at = serializers.DateTimeField()
+
+

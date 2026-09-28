@@ -12,6 +12,11 @@ from apps.authentication.permissions import RoleBasedAccessControl
 from apps.authentication.roles import UserRole
 from .models import PlantInventory, StockSafetyStatus
 from .inbound_forecast import simulate_forward_runway, InboundForecastError
+from .starvation_simulator import (
+    scan_multi_plant_starvation,
+    simulate_starvation_mitigation,
+    StarvationSimulatorError,
+)
 from .runway_engine import (
     SAIL_PLANTS_CONFIG,
     compute_runway_analysis,
@@ -23,6 +28,8 @@ from .serializers import (
     RunwayAnalysisSerializer,
     PlantHealthSummarySerializer,
     PlantForwardRunwayForecastSerializer,
+    PlantStarvationProfileSerializer,
+    StarvationMitigationSimulationSerializer,
 )
 
 
@@ -41,6 +48,8 @@ class PlantInventoryViewSet(viewsets.ModelViewSet):
         "critical_alerts": UserRole.all_roles(),
         "analysis": UserRole.all_roles(),
         "inbound_forecast": UserRole.all_roles(),
+        "starvation_matrix": UserRole.all_roles(),
+        "simulate_mitigation": UserRole.all_roles(),
         "trigger_alert_scan": [UserRole.SYSTEM_ADMIN.value, UserRole.PLANT_MANAGER.value, UserRole.LOGISTICS_AGENT.value],
         "create": [UserRole.SYSTEM_ADMIN.value, UserRole.PLANT_MANAGER.value],
         "update": [UserRole.SYSTEM_ADMIN.value, UserRole.PLANT_MANAGER.value],
@@ -226,4 +235,107 @@ class PlantInventoryViewSet(viewsets.ModelViewSet):
                 {"error": f"Failed to compute inbound runway forecast: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    # ──────────────────────────────────────────────────────────────────────
+    # GET /api/v1/inventory/starvation-matrix/
+    # Multi-plant raw material stock runway scanner & imbalance matrix
+    # ──────────────────────────────────────────────────────────────────────
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="starvation-matrix",
+        url_name="starvation-matrix",
+    )
+    def starvation_matrix(self, request):
+        """
+        GET /api/v1/inventory/starvation-matrix/?material_category=COKING_COAL&target_safe_days=21
+        Scans all 5 SAIL plants for inventory deficits and starvation risks.
+        """
+        from decimal import Decimal, InvalidOperation
+
+        material_category = request.query_params.get("material_category", "COKING_COAL").strip().upper()
+        target_days_raw = request.query_params.get("target_safe_days", "21")
+
+        try:
+            target_days = Decimal(str(target_days_raw))
+            if target_days < Decimal("1.00") or target_days > Decimal("60.00"):
+                return Response(
+                    {"error": "target_safe_days must be between 1 and 60 days."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        except (InvalidOperation, ValueError, TypeError):
+            return Response(
+                {"error": "target_safe_days must be a valid numeric decimal."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            profiles = scan_multi_plant_starvation(
+                material_category=material_category,
+                target_safe_days=target_days,
+            )
+            serializer = PlantStarvationProfileSerializer(profiles, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to scan multi-plant starvation matrix: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    # ──────────────────────────────────────────────────────────────────────
+    # GET /api/v1/inventory/simulate-mitigation/
+    # Emergency Cargo Diversion, Spot Re-chartering & Rail Transfer Simulator
+    # ──────────────────────────────────────────────────────────────────────
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="simulate-mitigation",
+        url_name="simulate-mitigation",
+    )
+    def simulate_mitigation(self, request):
+        """
+        GET /api/v1/inventory/simulate-mitigation/?plant_code=RSP&material_category=COKING_COAL&target_safe_days=21
+        Simulates emergency vessel diversion, spot re-chartering, and inter-plant rail transfers.
+        """
+        from decimal import Decimal, InvalidOperation
+
+        plant_code = request.query_params.get("plant_code")
+        if not plant_code or not plant_code.strip():
+            return Response(
+                {"error": "plant_code query parameter is required (e.g. ?plant_code=RSP)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        material_category = request.query_params.get("material_category", "COKING_COAL").strip().upper()
+        target_days_raw = request.query_params.get("target_safe_days", "21")
+
+        try:
+            target_days = Decimal(str(target_days_raw))
+            if target_days < Decimal("1.00") or target_days > Decimal("60.00"):
+                return Response(
+                    {"error": "target_safe_days must be between 1 and 60 days."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        except (InvalidOperation, ValueError, TypeError):
+            return Response(
+                {"error": "target_safe_days must be a valid numeric decimal."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            simulation = simulate_starvation_mitigation(
+                plant_code=plant_code.strip().upper(),
+                material_category=material_category,
+                target_safe_days=target_days,
+            )
+            serializer = StarvationMitigationSimulationSerializer(simulation)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except StarvationSimulatorError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to simulate starvation mitigation: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
 
