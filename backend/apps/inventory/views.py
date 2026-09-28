@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from apps.authentication.permissions import RoleBasedAccessControl
 from apps.authentication.roles import UserRole
 from .models import PlantInventory, StockSafetyStatus
+from .inbound_forecast import simulate_forward_runway, InboundForecastError
 from .runway_engine import (
     SAIL_PLANTS_CONFIG,
     compute_runway_analysis,
@@ -21,6 +22,7 @@ from .serializers import (
     PlantInventoryCreateSerializer,
     RunwayAnalysisSerializer,
     PlantHealthSummarySerializer,
+    PlantForwardRunwayForecastSerializer,
 )
 
 
@@ -38,6 +40,7 @@ class PlantInventoryViewSet(viewsets.ModelViewSet):
         "runway": UserRole.all_roles(),
         "critical_alerts": UserRole.all_roles(),
         "analysis": UserRole.all_roles(),
+        "inbound_forecast": UserRole.all_roles(),
         "trigger_alert_scan": [UserRole.SYSTEM_ADMIN.value, UserRole.PLANT_MANAGER.value, UserRole.LOGISTICS_AGENT.value],
         "create": [UserRole.SYSTEM_ADMIN.value, UserRole.PLANT_MANAGER.value],
         "update": [UserRole.SYSTEM_ADMIN.value, UserRole.PLANT_MANAGER.value],
@@ -169,3 +172,58 @@ class PlantInventoryViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_202_ACCEPTED,
         )
+
+    # ──────────────────────────────────────────────────────────────────────
+    # GET /api/v1/inventory/inbound-forecast/
+    # Forward-looking daily inventory depletion & vessel replenishment simulation
+    # ──────────────────────────────────────────────────────────────────────
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="inbound-forecast",
+        url_name="inbound-forecast",
+    )
+    def inbound_forecast(self, request):
+        """
+        GET /api/v1/inventory/inbound-forecast/?plant_code=BSP&material_category=COKING_COAL&horizon_days=30
+        Forward-looking day-by-day inventory runway simulation.
+        """
+        plant_code = request.query_params.get("plant_code")
+        if not plant_code or not plant_code.strip():
+            return Response(
+                {"error": "plant_code query parameter is required (e.g. ?plant_code=BSP)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        material_category = request.query_params.get("material_category", "COKING_COAL").strip().upper()
+        horizon_days_raw = request.query_params.get("horizon_days", "30")
+
+        try:
+            horizon_days = int(horizon_days_raw)
+            if horizon_days < 1 or horizon_days > 120:
+                return Response(
+                    {"error": "horizon_days must be an integer between 1 and 120."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "horizon_days must be a valid integer."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            forecast = simulate_forward_runway(
+                plant_code=plant_code.strip().upper(),
+                material_category=material_category,
+                horizon_days=horizon_days,
+            )
+            serializer = PlantForwardRunwayForecastSerializer(forecast)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except InboundForecastError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response(
+                {"error": f"Failed to compute inbound runway forecast: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+

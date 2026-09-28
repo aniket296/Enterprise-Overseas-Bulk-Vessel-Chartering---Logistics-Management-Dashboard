@@ -163,3 +163,46 @@ class PlantHealthSummarySerializer(serializers.Serializer):
     lowest_runway_days = serializers.DecimalField(max_digits=8, decimal_places=2, allow_null=True)
     overall_health = serializers.CharField()
     evaluated_at = serializers.DateTimeField()
+
+
+class DailyRunwayPointSerializer(serializers.Serializer):
+    """Daily projected stock and runway state in forward simulation."""
+    day_index = serializers.IntegerField()
+    simulation_date = serializers.DateField()
+    opening_stock_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    daily_burn_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    inbound_receipts_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    closing_stock_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    runway_days_remaining = serializers.DecimalField(max_digits=8, decimal_places=2)
+    safety_status = serializers.CharField()
+    events = serializers.ListField(child=serializers.CharField())
+
+
+class PlantForwardRunwayForecastSerializer(serializers.Serializer):
+    """Multi-day inventory depletion and vessel replenishment forecast serializer."""
+    plant_code = serializers.CharField()
+    plant_name = serializers.CharField()
+    plant_location = serializers.CharField()
+    material_category = serializers.CharField()
+    horizon_days = serializers.IntegerField()
+    as_of_date = serializers.DateField()
+
+    current_stock_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    daily_consumption_rate_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    baseline_runway_days = serializers.DecimalField(max_digits=8, decimal_places=2)
+
+    total_inbound_tonnage_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    inbound_vessels_count = serializers.IntegerField()
+    extended_runway_days = serializers.DecimalField(max_digits=8, decimal_places=2)
+
+    stockout_date = serializers.DateField(allow_null=True)
+    critical_breach_date = serializers.DateField(allow_null=True)
+    precautionary_breach_date = serializers.DateField(allow_null=True)
+    minimum_projected_stock_mt = serializers.DecimalField(max_digits=12, decimal_places=3)
+    minimum_stock_date = serializers.DateField(allow_null=True)
+    is_starvation_risk = serializers.BooleanField()
+
+    timeline = DailyRunwayPointSerializer(many=True)
+    inbound_vessels = InTransitCargoContributionSerializer(many=True)
+    generated_at = serializers.DateTimeField()
+
