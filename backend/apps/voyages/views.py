@@ -6,19 +6,23 @@ and Operational Milestone State Machine Transitions.
 """
 
 from decimal import Decimal
-from django.db import transaction
+from django.db import transaction, models
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from .models import VesselVoyage
+from .models import VesselVoyage, StatementOfFacts
+from .sof_enums import ALL_INTERRUPTION_EVENTS
 from .serializers import (
     VesselVoyageSerializer,
     ActiveFleetVoyageSerializer,
     VoyageTransitionRequestSerializer,
     VoyageTransitionResponseSerializer,
+    StatementOfFactsSerializer,
+    SOFIngestionItemSerializer,
+    SOFResponseWrapperSerializer,
 )
 from .state_machine import (
     VoyageStateMachine,
@@ -39,6 +43,8 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
       - GET /api/v1/voyages/active/
       - GET /api/v1/voyages/{voyage_id}/transition/
       - POST /api/v1/voyages/{voyage_id}/transition/
+      - GET /api/v1/voyages/{voyage_id}/sof/
+      - POST /api/v1/voyages/{voyage_id}/sof/
     """
     queryset = VesselVoyage.objects.select_related("vessel", "contract").all()
     serializer_class = VesselVoyageSerializer
@@ -64,6 +70,7 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
         "partial_update": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value],
         "destroy": [UserRole.SYSTEM_ADMIN.value],
         "transition": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value],
+        "sof": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value],
     }
 
     def get_queryset(self):
@@ -232,3 +239,138 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
             "transitioned_at": event_time,
         }
         return Response(VoyageTransitionResponseSerializer(response_data).data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["get", "post"], url_path="sof")
+    def sof(self, request, pk=None):
+        """
+        GET  /api/v1/voyages/{voyage_id}/sof/
+          Retrieve the complete chronological Statement of Facts (SOF) port event log
+          with timeline summary KPI metrics.
+
+        POST /api/v1/voyages/{voyage_id}/sof/
+          Ingest new SOF port event(s) for the voyage. Accepts either:
+            - A single event JSON object
+            - A JSON list of event objects
+            - A JSON object with an 'events' list
+          Auto-assigns monotonic sequence numbers and syncs milestone timestamps.
+        """
+        voyage = self.get_object()
+
+        if request.method == "GET":
+            sof_events = voyage.sof_events.all().order_by("sequence_number", "event_timestamp")
+            first_event = sof_events.first()
+            last_event = sof_events.last()
+
+            interruption_count = sum(1 for e in sof_events if e.event_type in ALL_INTERRUPTION_EVENTS)
+            latest_qty = None
+            for e in reversed(list(sof_events)):
+                if e.quantity_discharged_at_event is not None:
+                    latest_qty = e.quantity_discharged_at_event
+                    break
+
+            summary_data = {
+                "total_events_count": sof_events.count(),
+                "first_event_timestamp": first_event.event_timestamp if first_event else None,
+                "last_event_timestamp": last_event.event_timestamp if last_event else None,
+                "interruption_events_count": interruption_count,
+                "latest_discharged_mt": latest_qty,
+            }
+
+            response_data = {
+                "voyage_id": voyage.voyage_id,
+                "voyage_reference": voyage.voyage_reference,
+                "vessel_name": voyage.vessel.vessel_name,
+                "summary": summary_data,
+                "events": StatementOfFactsSerializer(sof_events, many=True).data,
+            }
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        # POST: Ingestion
+        data = request.data
+        if isinstance(data, list):
+            events_data = data
+        elif isinstance(data, dict) and "events" in data and isinstance(data["events"], list):
+            events_data = data["events"]
+        elif isinstance(data, dict):
+            events_data = [data]
+        else:
+            return Response(
+                {"error": "VALIDATION_ERROR", "detail": "Expected a single event object or list of events."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not events_data:
+            return Response(
+                {"error": "VALIDATION_ERROR", "detail": "No event items provided for ingestion."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = SOFIngestionItemSerializer(data=events_data, many=True)
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user if getattr(request, "user", None) and request.user.is_authenticated else None
+
+        created_records = []
+        with transaction.atomic():
+            current_max_seq = (
+                StatementOfFacts.objects.filter(voyage=voyage)
+                .aggregate(models.Max("sequence_number"))["sequence_number__max"]
+                or 0
+            )
+
+            for item in serializer.validated_data:
+                seq = item.get("sequence_number")
+                if seq is None:
+                    current_max_seq += 1
+                    seq = current_max_seq
+                else:
+                    if seq > current_max_seq:
+                        current_max_seq = seq
+
+                sof = StatementOfFacts(
+                    voyage=voyage,
+                    event_type=item["event_type"],
+                    event_timestamp=item["event_timestamp"],
+                    sequence_number=seq,
+                    event_description=item.get("event_description", ""),
+                    recorded_by_agent=item.get("recorded_by_agent", ""),
+                    crane_number=item.get("crane_number"),
+                    hatch_number=item.get("hatch_number"),
+                    quantity_discharged_at_event=item.get("quantity_discharged_at_event"),
+                    interruption_cause=item.get("interruption_cause", ""),
+                    weather_condition=item.get("weather_condition", ""),
+                    is_amendment=item.get("is_amendment", False),
+                    amended_sof_id=item.get("amended_sof_id"),
+                    source_document_id=item.get("source_document_id"),
+                    submitted_by=user,
+                )
+                sof.full_clean()
+                sof.save(skip_clean=True)
+                created_records.append(sof)
+
+                # Authoritative operational milestone sync
+                ev_type = sof.event_type
+                if ev_type == "NOR_TENDERED" and not voyage.nor_tendered_at:
+                    voyage.nor_tendered_at = sof.event_timestamp
+                elif ev_type == "NOR_ACCEPTED" and not voyage.nor_accepted_at:
+                    voyage.nor_accepted_at = sof.event_timestamp
+                elif ev_type == "ALL_FAST" and not voyage.berthed_at:
+                    voyage.berthed_at = sof.event_timestamp
+                elif ev_type == "DISCHARGE_COMMENCED" and not voyage.discharge_commenced_at:
+                    voyage.discharge_commenced_at = sof.event_timestamp
+                elif ev_type == "DISCHARGE_COMPLETED" and not voyage.discharge_completed_at:
+                    voyage.discharge_completed_at = sof.event_timestamp
+
+                if sof.quantity_discharged_at_event is not None:
+                    voyage.quantity_discharged_mt = sof.quantity_discharged_at_event
+
+            voyage.save(skip_clean=True)
+
+        return Response(
+            {
+                "voyage_id": voyage.voyage_id,
+                "ingested_count": len(created_records),
+                "events": StatementOfFactsSerializer(created_records, many=True).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )

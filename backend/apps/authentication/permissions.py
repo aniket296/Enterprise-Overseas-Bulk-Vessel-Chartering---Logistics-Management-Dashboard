@@ -51,7 +51,11 @@ class RoleBasedAccessControl(permissions.BasePermission):
         if current_role == UserRole.SYSTEM_ADMIN.value:
             return True
 
-        # Action-level check
+        # All recognized domain roles have read visibility for SAFE_METHODS (GET, HEAD, OPTIONS)
+        if request.method in permissions.SAFE_METHODS:
+            return True
+
+        # Mutation check against action_roles
         action = getattr(view, "action", None)
         action_roles = getattr(view, "action_roles", None)
 
@@ -68,10 +72,6 @@ class RoleBasedAccessControl(permissions.BasePermission):
                 "required_roles": allowed,
             }
             return False
-
-        # If action not mapped, allow SAFE_METHODS (GET, HEAD, OPTIONS)
-        if request.method in permissions.SAFE_METHODS:
-            return True
 
         # Unmapped mutations default to SYSTEM_ADMIN only
         self.message = {

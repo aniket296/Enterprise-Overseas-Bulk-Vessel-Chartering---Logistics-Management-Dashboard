@@ -9,10 +9,13 @@ import uuid
 from decimal import Decimal
 from typing import Optional, List
 from django.db import models
+from django.conf import settings
 from django.core.validators import MinValueValidator
+from django.core.exceptions import ValidationError
 
 from apps.contracts.models import Vessel, CharterContract
 from apps.laytime.engine.fixture_factory import VoyageStatus
+from .sof_enums import SOFEventType, IntervalCountStatus
 
 
 class VesselVoyage(models.Model):
@@ -157,3 +160,108 @@ class VesselVoyage(models.Model):
 
     def __str__(self) -> str:
         return f"{self.voyage_reference} - {self.vessel.vessel_name} [{self.voyage_status}]"
+
+
+class StatementOfFacts(models.Model):
+    """
+    Chronological Statement of Facts (SOF) port event log line item.
+    Maps directly to PostgreSQL 'shipping.statement_of_facts'.
+    """
+    sof_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    voyage = models.ForeignKey(
+        VesselVoyage, on_delete=models.CASCADE, related_name="sof_events"
+    )
+    event_type = models.CharField(
+        max_length=64,
+        choices=SOFEventType.choices,
+        help_text="Standardized maritime port event type",
+    )
+    event_timestamp = models.DateTimeField(
+        help_text="Authoritative UTC timestamp when event occurred"
+    )
+    sequence_number = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Monotonically increasing sequence within voyage (auto-assigned if null)",
+    )
+    event_description = models.TextField(null=True, blank=True)
+    recorded_by_agent = models.CharField(max_length=120, null=True, blank=True)
+    crane_number = models.PositiveSmallIntegerField(null=True, blank=True)
+    hatch_number = models.PositiveSmallIntegerField(null=True, blank=True)
+    quantity_discharged_at_event = models.DecimalField(
+        max_digits=10, decimal_places=3, null=True, blank=True
+    )
+
+    # Interruption details
+    interruption_cause = models.CharField(max_length=120, null=True, blank=True)
+    weather_condition = models.CharField(max_length=60, null=True, blank=True)
+
+    # Laytime calculation audit fields
+    count_status = models.CharField(
+        max_length=32, choices=IntervalCountStatus.choices, null=True, blank=True
+    )
+    count_fraction = models.DecimalField(
+        max_digits=3, decimal_places=2, null=True, blank=True
+    )
+    counted_hours = models.DecimalField(
+        max_digits=10, decimal_places=6, null=True, blank=True
+    )
+
+    # Amendment tracking
+    is_amendment = models.BooleanField(default=False)
+    amended_sof = models.ForeignKey(
+        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="amendments"
+    )
+    source_document_id = models.UUIDField(null=True, blank=True)
+
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    submitted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True
+    )
+
+    class Meta:
+        db_table = "statement_of_facts"
+        ordering = ["sequence_number", "event_timestamp"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["voyage", "sequence_number"],
+                name="uq_sof_voyage_sequence",
+            )
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.sequence_number is not None and self.sequence_number <= 0:
+            raise ValidationError({"sequence_number": "Sequence number must be strictly positive."})
+        if self.count_fraction is not None and not (Decimal("0.00") <= self.count_fraction <= Decimal("1.00")):
+            raise ValidationError({"count_fraction": "Count fraction must be between 0.00 and 1.00."})
+        if self.counted_hours is not None and self.counted_hours < 0:
+            raise ValidationError({"counted_hours": "Counted hours must be non-negative."})
+        if self.crane_number is not None and self.crane_number <= 0:
+            raise ValidationError({"crane_number": "Crane number must be strictly positive."})
+        if self.hatch_number is not None and self.hatch_number <= 0:
+            raise ValidationError({"hatch_number": "Hatch number must be strictly positive."})
+        if self.quantity_discharged_at_event is not None and self.quantity_discharged_at_event < 0:
+            raise ValidationError({"quantity_discharged_at_event": "Quantity discharged must be non-negative."})
+        if self.is_amendment:
+            if not self.amended_sof_id:
+                raise ValidationError({"amended_sof": "amended_sof is required when is_amendment is True."})
+            if self.amended_sof_id == self.sof_id:
+                raise ValidationError({"amended_sof": "An SOF event cannot amend itself."})
+
+    def save(self, *args, **kwargs) -> None:
+        if self.sequence_number is None:
+            max_seq = (
+                StatementOfFacts.objects.filter(voyage=self.voyage)
+                .aggregate(models.Max("sequence_number"))["sequence_number__max"]
+            )
+            self.sequence_number = (max_seq or 0) + 1
+
+        skip_clean = kwargs.pop("skip_clean", False)
+        if not skip_clean:
+            self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"SOF #{self.sequence_number}: {self.event_type} @ {self.event_timestamp.isoformat()}"
+

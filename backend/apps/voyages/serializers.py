@@ -9,7 +9,8 @@ from typing import List
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import VesselVoyage
+from .models import VesselVoyage, StatementOfFacts
+from .sof_enums import SOFEventType, IntervalCountStatus
 from apps.laytime.engine.fixture_factory import VoyageStatus
 
 
@@ -212,3 +213,77 @@ class VoyageTransitionResponseSerializer(serializers.Serializer):
     milestones = MilestoneTimestampsSerializer()
     remarks = serializers.CharField(allow_blank=True)
     transitioned_at = serializers.DateTimeField()
+
+
+class StatementOfFactsSerializer(serializers.ModelSerializer):
+    """Full representation of an SOF port log line."""
+    submitted_by_username = serializers.ReadOnlyField(source="submitted_by.username")
+    event_type_display = serializers.CharField(source="get_event_type_display", read_only=True)
+    count_status_display = serializers.CharField(source="get_count_status_display", read_only=True)
+
+    class Meta:
+        model = StatementOfFacts
+        fields = [
+            "sof_id",
+            "voyage",
+            "event_type",
+            "event_type_display",
+            "event_timestamp",
+            "sequence_number",
+            "event_description",
+            "recorded_by_agent",
+            "crane_number",
+            "hatch_number",
+            "quantity_discharged_at_event",
+            "interruption_cause",
+            "weather_condition",
+            "count_status",
+            "count_status_display",
+            "count_fraction",
+            "counted_hours",
+            "is_amendment",
+            "amended_sof",
+            "source_document_id",
+            "submitted_at",
+            "submitted_by",
+            "submitted_by_username",
+        ]
+        read_only_fields = ["sof_id", "submitted_at"]
+
+
+class SOFIngestionItemSerializer(serializers.Serializer):
+    """Validates an incoming SOF event payload."""
+    event_type = serializers.ChoiceField(choices=SOFEventType.choices)
+    event_timestamp = serializers.DateTimeField()
+    sequence_number = serializers.IntegerField(required=False, allow_null=True)
+    event_description = serializers.CharField(required=False, allow_blank=True, default="")
+    recorded_by_agent = serializers.CharField(required=False, allow_blank=True, default="")
+    crane_number = serializers.IntegerField(required=False, allow_null=True)
+    hatch_number = serializers.IntegerField(required=False, allow_null=True)
+    quantity_discharged_at_event = serializers.DecimalField(
+        max_digits=10, decimal_places=3, required=False, allow_null=True
+    )
+    interruption_cause = serializers.CharField(required=False, allow_blank=True, default="")
+    weather_condition = serializers.CharField(required=False, allow_blank=True, default="")
+    is_amendment = serializers.BooleanField(required=False, default=False)
+    amended_sof_id = serializers.UUIDField(required=False, allow_null=True)
+    source_document_id = serializers.UUIDField(required=False, allow_null=True)
+
+
+class SOFSummarySerializer(serializers.Serializer):
+    """Summary KPI metrics for a voyage's SOF timeline."""
+    total_events_count = serializers.IntegerField()
+    first_event_timestamp = serializers.DateTimeField(allow_null=True)
+    last_event_timestamp = serializers.DateTimeField(allow_null=True)
+    interruption_events_count = serializers.IntegerField()
+    latest_discharged_mt = serializers.DecimalField(max_digits=10, decimal_places=3, allow_null=True)
+
+
+class SOFResponseWrapperSerializer(serializers.Serializer):
+    """Response payload for GET /api/v1/voyages/{voyage_id}/sof/."""
+    voyage_id = serializers.UUIDField()
+    voyage_reference = serializers.CharField()
+    vessel_name = serializers.CharField()
+    summary = SOFSummarySerializer()
+    events = StatementOfFactsSerializer(many=True)
+
