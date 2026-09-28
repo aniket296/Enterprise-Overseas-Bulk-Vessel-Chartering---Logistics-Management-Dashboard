@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     "apps.contracts.apps.ContractsConfig",
     "apps.voyages.apps.VoyagesConfig",
     "apps.laytime",
+    "apps.inventory.apps.InventoryConfig",
 ]
 
 MIDDLEWARE = [
