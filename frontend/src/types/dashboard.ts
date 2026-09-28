@@ -242,6 +242,53 @@ export interface CarrierScorecard {
   contract_count: number;
 }
 
+export interface InboundDailyPoint {
+  day_index: number;
+  simulation_date: string;
+  opening_stock_mt: string;
+  daily_burn_mt: string;
+  inbound_receipts_mt: string;
+  closing_stock_mt: string;
+  runway_days_remaining: string;
+  safety_status: "ADEQUATE" | "PRECAUTIONARY" | "CRITICAL" | "STOCKOUT" | string;
+  events: string[];
+}
+
+export interface InboundVesselContribution {
+  voyage_id: string;
+  voyage_reference: string;
+  vessel_name: string;
+  cargo_type: string;
+  quantity_mt: string;
+  voyage_status: string;
+  eta_date: string;
+  discharge_port: string;
+}
+
+export interface InboundForecastData {
+  plant_code: string;
+  plant_name: string;
+  plant_location: string;
+  material_category: string;
+  horizon_days: number;
+  as_of_date: string;
+  current_stock_mt: string;
+  daily_consumption_rate_mt: string;
+  baseline_runway_days: string;
+  total_inbound_tonnage_mt: string;
+  inbound_vessels_count: number;
+  extended_runway_days: string;
+  stockout_date: string | null;
+  critical_breach_date: string | null;
+  precautionary_breach_date: string | null;
+  minimum_projected_stock_mt: string;
+  minimum_stock_date: string | null;
+  is_starvation_risk: boolean;
+  timeline: InboundDailyPoint[];
+  inbound_vessels: InboundVesselContribution[];
+  generated_at: string;
+}
+
 export type UserRole =
   | "EXECUTIVE_DIRECTOR"
   | "LOGISTICS_DIRECTOR"

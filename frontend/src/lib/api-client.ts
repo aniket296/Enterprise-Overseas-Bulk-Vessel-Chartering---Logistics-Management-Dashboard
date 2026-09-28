@@ -132,7 +132,7 @@ export const logisticsApi = {
     materialCategory: string = "COKING_COAL",
     horizonDays: number = 60,
     role: UserRole = "LOGISTICS_DIRECTOR"
-  ) => {
+  ): Promise<import("@/types/dashboard").InboundForecastData> => {
     return fetchWithAuth(
       `/inventory/inbound-forecast/?plant_code=${plantCode}&material_category=${materialCategory}&horizon_days=${horizonDays}`,
       { role }
