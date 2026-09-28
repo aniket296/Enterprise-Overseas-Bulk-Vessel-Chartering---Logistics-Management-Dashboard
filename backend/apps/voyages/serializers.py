@@ -9,7 +9,7 @@ from typing import List
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import VesselVoyage, StatementOfFacts
+from .models import VesselVoyage, StatementOfFacts, LaytimeCalculation
 from .sof_enums import SOFEventType, IntervalCountStatus
 from apps.laytime.engine.fixture_factory import VoyageStatus
 
@@ -286,4 +286,58 @@ class SOFResponseWrapperSerializer(serializers.Serializer):
     vessel_name = serializers.CharField()
     summary = SOFSummarySerializer()
     events = StatementOfFactsSerializer(many=True)
+
+
+class LaytimeCalculationSerializer(serializers.ModelSerializer):
+    """
+    Serializer for authoritative laytime settlement records.
+    """
+    voyage_id = serializers.UUIDField(source="voyage.voyage_id", read_only=True)
+    voyage_reference = serializers.ReadOnlyField(source="voyage.voyage_reference")
+    settled_by_username = serializers.ReadOnlyField(source="settled_by.username", default=None)
+
+    class Meta:
+        model = LaytimeCalculation
+        fields = [
+            "calc_id",
+            "voyage_id",
+            "voyage_reference",
+            "revision",
+            "is_current",
+            "outcome",
+            "calculated_at",
+            "celery_task_id",
+            "allowed_laytime_hours",
+            "total_port_hours",
+            "total_counted_hours",
+            "total_excepted_hours",
+            "total_disputed_hours",
+            "variance_hours",
+            "demurrage_rate_usd_per_day",
+            "despatch_rate_usd_per_day",
+            "gross_demurrage_usd",
+            "gross_despatch_usd",
+            "net_settlement_usd",
+            "demurrage_commenced_at",
+            "sof_event_count",
+            "first_sof_event_at",
+            "last_sof_event_at",
+            "settled_at",
+            "settled_by",
+            "settled_by_username",
+            "settlement_notes",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "calc_id",
+            "voyage_id",
+            "voyage_reference",
+            "revision",
+            "is_current",
+            "calculated_at",
+            "created_at",
+            "updated_at",
+        ]
+
 

@@ -15,6 +15,7 @@ from django.core.exceptions import ValidationError
 
 from apps.contracts.models import Vessel, CharterContract
 from apps.laytime.engine.fixture_factory import VoyageStatus
+from apps.laytime.engine.settlement_engine import LaytimeOutcome
 from .sof_enums import SOFEventType, IntervalCountStatus
 
 
@@ -264,4 +265,104 @@ class StatementOfFacts(models.Model):
 
     def __str__(self) -> str:
         return f"SOF #{self.sequence_number}: {self.event_type} @ {self.event_timestamp.isoformat()}"
+
+
+class LaytimeCalculation(models.Model):
+    """
+    Authoritative laytime computation & settlement result per voyage revision.
+    Maps directly to PostgreSQL 'shipping.laytime_calculations'.
+    """
+    calc_id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    voyage = models.ForeignKey(
+        VesselVoyage, on_delete=models.CASCADE, related_name="laytime_calculations"
+    )
+    revision = models.PositiveIntegerField(default=1)
+    is_current = models.BooleanField(default=True)
+
+    outcome = models.CharField(
+        max_length=32,
+        choices=[(tag.value, tag.name) for tag in LaytimeOutcome],
+        default=LaytimeOutcome.PENDING.value,
+    )
+    calculated_at = models.DateTimeField(null=True, blank=True)
+    celery_task_id = models.CharField(max_length=64, null=True, blank=True)
+
+    # Laytime accounting (fractional hours)
+    allowed_laytime_hours = models.DecimalField(max_digits=12, decimal_places=6)
+    total_port_hours = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
+    total_counted_hours = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
+    total_excepted_hours = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
+    total_disputed_hours = models.DecimalField(max_digits=12, decimal_places=6, default=Decimal("0.000000"))
+
+    variance_hours = models.DecimalField(max_digits=12, decimal_places=6, null=True, blank=True)
+
+    # Financial settlement (USD)
+    demurrage_rate_usd_per_day = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    despatch_rate_usd_per_day = models.DecimalField(max_digits=12, decimal_places=4, null=True, blank=True)
+    gross_demurrage_usd = models.DecimalField(max_digits=14, decimal_places=4, null=True, blank=True)
+    gross_despatch_usd = models.DecimalField(max_digits=14, decimal_places=4, null=True, blank=True)
+    net_settlement_usd = models.DecimalField(max_digits=14, decimal_places=4, null=True, blank=True)
+
+    demurrage_commenced_at = models.DateTimeField(null=True, blank=True)
+
+    # SOF audit summary
+    sof_event_count = models.PositiveIntegerField(null=True, blank=True)
+    first_sof_event_at = models.DateTimeField(null=True, blank=True)
+    last_sof_event_at = models.DateTimeField(null=True, blank=True)
+
+    # Settlement details
+    settled_at = models.DateTimeField(null=True, blank=True)
+    settled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True
+    )
+    settlement_notes = models.TextField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "laytime_calculations"
+        ordering = ["voyage", "-revision"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["voyage"],
+                condition=models.Q(is_current=True),
+                name="uq_laytime_one_current_per_voyage",
+            ),
+            models.UniqueConstraint(
+                fields=["voyage", "revision"],
+                name="uq_laytime_voyage_revision",
+            ),
+        ]
+
+    def clean(self) -> None:
+        super().clean()
+        if self.revision is not None and self.revision <= 0:
+            raise ValidationError({"revision": "Revision must be positive."})
+        if self.allowed_laytime_hours is not None and self.allowed_laytime_hours <= 0:
+            raise ValidationError({"allowed_laytime_hours": "Allowed laytime hours must be positive."})
+        if self.total_counted_hours is not None and self.total_counted_hours < 0:
+            raise ValidationError({"total_counted_hours": "Total counted hours cannot be negative."})
+        if self.total_excepted_hours is not None and self.total_excepted_hours < 0:
+            raise ValidationError({"total_excepted_hours": "Total excepted hours cannot be negative."})
+        if (
+            self.gross_demurrage_usd is not None
+            and self.gross_despatch_usd is not None
+            and self.gross_demurrage_usd > 0
+            and self.gross_despatch_usd > 0
+        ):
+            raise ValidationError("Gross demurrage and gross despatch cannot both be non-zero.")
+
+    def save(self, *args, **kwargs) -> None:
+        skip_clean = kwargs.pop("skip_clean", False)
+        if not skip_clean:
+            self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"Laytime #{self.revision} [{self.outcome}] - {self.voyage.voyage_reference}"
+
+
+LaytimeRecord = LaytimeCalculation
+
 

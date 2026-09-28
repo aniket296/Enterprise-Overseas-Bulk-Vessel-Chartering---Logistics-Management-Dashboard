@@ -13,7 +13,7 @@ from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from .models import VesselVoyage, StatementOfFacts
+from .models import VesselVoyage, StatementOfFacts, LaytimeCalculation
 from .sof_enums import ALL_INTERRUPTION_EVENTS
 from .sof_normalizer import (
     normalize_sof_batch,
@@ -29,6 +29,7 @@ from .serializers import (
     StatementOfFactsSerializer,
     SOFIngestionItemSerializer,
     SOFResponseWrapperSerializer,
+    LaytimeCalculationSerializer,
 )
 from .state_machine import (
     VoyageStateMachine,
@@ -36,6 +37,7 @@ from .state_machine import (
     MilestoneChronologyError,
 )
 from apps.laytime.engine.fixture_factory import VoyageStatus
+from apps.laytime.engine.settlement_engine import LaytimeOutcome
 from apps.authentication.roles import UserRole
 
 
@@ -78,6 +80,7 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
         "transition": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value],
         "sof": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value],
         "laytime": UserRole.all_roles(),
+        "settle": [UserRole.SYSTEM_ADMIN.value, UserRole.FINANCE_OFFICER.value, UserRole.LOGISTICS_AGENT.value],
     }
 
     def get_queryset(self):
@@ -517,3 +520,146 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Cycle 2.2.5 — POST / GET /api/v1/voyages/{voyage_id}/settle/
+    # Demurrage Settlement API
+    # ──────────────────────────────────────────────────────────────────────
+    @action(
+        detail=True,
+        methods=["get", "post"],
+        url_path="settle",
+        url_name="settle",
+    )
+    def settle(self, request, pk=None):
+        """
+        GET /api/v1/voyages/{voyage_id}/settle/
+          Retrieve the current authoritative laytime calculation / settlement record.
+          Returns 200 with record, or 404 if not yet settled.
+
+        POST /api/v1/voyages/{voyage_id}/settle/
+          Compute and persist authoritative laytime settlement figures.
+          Prerequisites:
+            - DISCHARGE_COMPLETED milestone recorded (voyage.discharge_completed_at is set).
+            - Idempotent: re-settlement re-runs engine and updates record if not yet SETTLED / DISPUTED.
+          Returns 201 (if created) or 200 (if updated).
+        """
+        voyage = self.get_object()
+
+        if request.method == "GET":
+            calc = voyage.laytime_calculations.filter(is_current=True).first()
+            if not calc:
+                return Response(
+                    {
+                        "error": "NOT_SETTLED",
+                        "detail": f"Voyage {voyage.voyage_reference} does not have an authoritative settlement record.",
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            return Response(LaytimeCalculationSerializer(calc).data, status=status.HTTP_200_OK)
+
+        # POST branch
+        # Prerequisite check: DISCHARGE_COMPLETED
+        if not voyage.discharge_completed_at:
+            return Response(
+                {
+                    "error": "DISCHARGE_NOT_COMPLETED",
+                    "detail": "Laytime settlement can only be locked after DISCHARGE_COMPLETED milestone is recorded.",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # Idempotency check:
+        existing = voyage.laytime_calculations.filter(is_current=True).first()
+        if existing and existing.outcome in (LaytimeOutcome.SETTLED.value, LaytimeOutcome.DISPUTED.value):
+            return Response(
+                {
+                    "error": "SETTLEMENT_LOCKED",
+                    "detail": f"Settlement for voyage {voyage.voyage_reference} is already '{existing.outcome}' and cannot be recomputed.",
+                    "calculation": LaytimeCalculationSerializer(existing).data,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # Compute laytime balance snapshot
+        try:
+            snapshot = compute_laytime_balance(voyage)
+        except LaytimeBalanceError as exc:
+            return Response(
+                {"error": exc.code, "detail": exc.detail},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        settlement_notes = request.data.get("settlement_notes", "")
+        req_outcome = request.data.get("outcome")
+
+        # Total counted hours includes base counted laytime plus demurrage hours
+        total_counted = snapshot.counted_hours + snapshot.demurrage_hours
+        total_port = total_counted + snapshot.excepted_hours
+        variance = snapshot.balance_hours
+
+        sof_qs = voyage.sof_events.all().order_by("event_timestamp")
+        sof_count = sof_qs.count()
+        first_sof = sof_qs.first()
+        last_sof = sof_qs.last()
+
+        user = request.user if request.user and request.user.is_authenticated else None
+        now = timezone.now()
+
+        # Target outcome: if client specifies valid outcome (e.g. SETTLED / DISPUTED), honor it; else snapshot outcome
+        final_outcome = req_outcome if req_outcome in [tag.value for tag in LaytimeOutcome] else snapshot.outcome
+
+        with transaction.atomic():
+            if existing:
+                existing.outcome = final_outcome
+                existing.calculated_at = now
+                existing.allowed_laytime_hours = snapshot.allowed_hours
+                existing.total_port_hours = total_port
+                existing.total_counted_hours = total_counted
+                existing.total_excepted_hours = snapshot.excepted_hours
+                existing.variance_hours = variance
+                existing.demurrage_rate_usd_per_day = snapshot.demurrage_rate_usd_per_day
+                existing.despatch_rate_usd_per_day = snapshot.despatch_rate_usd_per_day
+                existing.gross_demurrage_usd = snapshot.gross_demurrage_usd
+                existing.gross_despatch_usd = snapshot.gross_despatch_usd
+                existing.net_settlement_usd = snapshot.net_settlement_usd
+                existing.demurrage_commenced_at = snapshot.demurrage_commenced_at
+                existing.sof_event_count = sof_count
+                existing.first_sof_event_at = first_sof.event_timestamp if first_sof else None
+                existing.last_sof_event_at = last_sof.event_timestamp if last_sof else None
+                existing.settled_at = now
+                existing.settled_by = user
+                if settlement_notes:
+                    existing.settlement_notes = settlement_notes
+                existing.save()
+                calc_record = existing
+                res_status = status.HTTP_200_OK
+            else:
+                calc_record = LaytimeCalculation.objects.create(
+                    voyage=voyage,
+                    revision=1,
+                    is_current=True,
+                    outcome=final_outcome,
+                    calculated_at=now,
+                    allowed_laytime_hours=snapshot.allowed_hours,
+                    total_port_hours=total_port,
+                    total_counted_hours=total_counted,
+                    total_excepted_hours=snapshot.excepted_hours,
+                    variance_hours=variance,
+                    demurrage_rate_usd_per_day=snapshot.demurrage_rate_usd_per_day,
+                    despatch_rate_usd_per_day=snapshot.despatch_rate_usd_per_day,
+                    gross_demurrage_usd=snapshot.gross_demurrage_usd,
+                    gross_despatch_usd=snapshot.gross_despatch_usd,
+                    net_settlement_usd=snapshot.net_settlement_usd,
+                    demurrage_commenced_at=snapshot.demurrage_commenced_at,
+                    sof_event_count=sof_count,
+                    first_sof_event_at=first_sof.event_timestamp if first_sof else None,
+                    last_sof_event_at=last_sof.event_timestamp if last_sof else None,
+                    settled_at=now,
+                    settled_by=user,
+                    settlement_notes=settlement_notes,
+                )
+                res_status = status.HTTP_201_CREATED
+
+        return Response(LaytimeCalculationSerializer(calc_record).data, status=res_status)
+
