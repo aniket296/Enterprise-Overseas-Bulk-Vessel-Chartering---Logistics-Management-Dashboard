@@ -10,7 +10,10 @@ from django.utils import timezone
 from apps.voyages.berth_conflict import sweep_all_active_berth_conflicts
 
 
-@shared_task(name="apps.voyages.tasks.compute_berth_conflicts_async")
+@shared_task(
+    name="apps.voyages.tasks.compute_berth_conflicts_async",
+    queue="calculations",
+)
 def compute_berth_conflicts_async(discharge_port: str = None, discharge_berth: str = None):
     """
     Asynchronous berth conflict sweep.
@@ -21,11 +24,11 @@ def compute_berth_conflicts_async(discharge_port: str = None, discharge_berth: s
         "total_conflicts": len(conflicts),
         "conflicts": [
             {
-                "berth": c.berth,
-                "port": c.port,
-                "overlap_hours": str(c.overlap_duration_hours),
-                "voyage_a_id": str(c.voyage_a.voyage_id),
-                "voyage_b_id": str(c.voyage_b.voyage_id),
+                "berth": c.discharge_berth,
+                "port": c.discharge_port,
+                "overlap_hours": str(c.overlap_hours),
+                "voyage_a_id": str(c.voyage_id_a),
+                "voyage_b_id": str(c.voyage_id_b),
             }
             for c in conflicts
         ],
@@ -33,7 +36,43 @@ def compute_berth_conflicts_async(discharge_port: str = None, discharge_berth: s
     }
 
 
-@shared_task(name="apps.voyages.tasks.alert_voyage_status_change")
+@shared_task(
+    name="apps.voyages.tasks.alert_active_berth_conflicts_async",
+    queue="alerts",
+)
+def alert_active_berth_conflicts_async(discharge_port: str = None, discharge_berth: str = None):
+    """
+    Periodic and event-driven watchdog task for berth collisions and scheduling overlaps.
+    Routed to 'alerts' queue.
+    """
+    conflicts = sweep_all_active_berth_conflicts(discharge_port=discharge_port, discharge_berth=discharge_berth)
+    return {
+        "conflicts_count": len(conflicts),
+        "conflicts": [
+            {
+                "berth": c.discharge_berth,
+                "port": c.discharge_port,
+                "overlap_hours": str(c.overlap_hours),
+                "voyage_a_id": str(c.voyage_id_a),
+                "voyage_a_reference": c.voyage_ref_a,
+                "voyage_b_id": str(c.voyage_id_b),
+                "voyage_b_reference": c.voyage_ref_b,
+                "vessel_b_name": c.vessel_name_b,
+                "overlap_start": c.overlap_start.isoformat(),
+                "overlap_end": c.overlap_end.isoformat(),
+                "severity": c.severity,
+            }
+            for c in conflicts
+        ],
+        "scanned_at": timezone.now().isoformat(),
+        "status": "ALERT_TRIGGERED" if conflicts else "CLEAR",
+    }
+
+
+@shared_task(
+    name="apps.voyages.tasks.alert_voyage_status_change",
+    queue="alerts",
+)
 def alert_voyage_status_change(voyage_id: str, old_status: str, new_status: str):
     """
     Asynchronous alert broadcast for voyage status state machine transitions.
@@ -43,11 +82,13 @@ def alert_voyage_status_change(voyage_id: str, old_status: str, new_status: str)
     try:
         voyage = VesselVoyage.objects.select_related("vessel", "contract").get(voyage_id=voyage_id)
         return {
+            "voyage_id": str(voyage.voyage_id),
             "voyage_reference": voyage.voyage_reference,
             "vessel_name": voyage.vessel.vessel_name,
             "old_status": old_status,
             "new_status": new_status,
             "alert_timestamp": timezone.now().isoformat(),
+            "status": "SENT",
         }
     except Exception as exc:
         return {"voyage_id": voyage_id, "error": str(exc), "status": "FAILED"}

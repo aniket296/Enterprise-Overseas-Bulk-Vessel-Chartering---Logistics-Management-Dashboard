@@ -271,6 +271,18 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
             "remarks": remarks,
             "transitioned_at": event_time,
         }
+
+        # ------------------------------------------------------------------
+        # Cycle 2.4.3: Operational Milestone State Transition Alert
+        # Broadcast milestone transition notification to the 'alerts' Celery queue
+        # ------------------------------------------------------------------
+        from apps.voyages.tasks import alert_voyage_status_change
+        alert_voyage_status_change.delay(
+            str(updated_voyage.voyage_id),
+            previous_status,
+            updated_voyage.voyage_status,
+        )
+
         return Response(VoyageTransitionResponseSerializer(response_data).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["get", "post"], url_path="sof")

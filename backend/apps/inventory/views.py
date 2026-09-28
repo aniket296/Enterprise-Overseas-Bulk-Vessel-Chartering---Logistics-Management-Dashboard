@@ -38,6 +38,7 @@ class PlantInventoryViewSet(viewsets.ModelViewSet):
         "runway": UserRole.all_roles(),
         "critical_alerts": UserRole.all_roles(),
         "analysis": UserRole.all_roles(),
+        "trigger_alert_scan": [UserRole.SYSTEM_ADMIN.value, UserRole.PLANT_MANAGER.value, UserRole.LOGISTICS_AGENT.value],
         "create": [UserRole.SYSTEM_ADMIN.value, UserRole.PLANT_MANAGER.value],
         "update": [UserRole.SYSTEM_ADMIN.value, UserRole.PLANT_MANAGER.value],
         "partial_update": [UserRole.SYSTEM_ADMIN.value, UserRole.PLANT_MANAGER.value],
@@ -142,3 +143,29 @@ class PlantInventoryViewSet(viewsets.ModelViewSet):
         snapshot = self.get_object()
         analysis_data = compute_runway_analysis(snapshot)
         return Response(RunwayAnalysisSerializer(analysis_data).data, status=status.HTTP_200_OK)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # POST /api/v1/inventory/trigger-alert-scan/
+    # Asynchronously dispatch critical inventory watchdog scan to 'alerts' queue
+    # ──────────────────────────────────────────────────────────────────────
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="trigger-alert-scan",
+        url_name="trigger-alert-scan",
+    )
+    def trigger_alert_scan(self, request):
+        """
+        POST /api/v1/inventory/trigger-alert-scan/
+        Dispatches an asynchronous critical stock alerts watchdog sweep to the 'alerts' Celery queue.
+        """
+        from apps.inventory.tasks import check_critical_stock_alerts_async
+        async_task = check_critical_stock_alerts_async.delay()
+        return Response(
+            {
+                "task_id": async_task.id,
+                "status": "QUEUED",
+                "queue": "alerts",
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )

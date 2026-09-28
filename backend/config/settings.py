@@ -227,3 +227,17 @@ CELERY_TASK_ROUTES = {
     # Default fallback
     "config.celery.*": {"queue": "default", "routing_key": "default.general"},
 }
+
+# Celery Beat Scheduled Periodic Tasks (Autonomous operational watchdog monitors)
+CELERY_BEAT_SCHEDULE = {
+    "periodic-inventory-runway-watchdog": {
+        "task": "apps.inventory.tasks.check_critical_stock_alerts_async",
+        "schedule": 900.0,  # every 15 minutes
+        "options": {"queue": "alerts", "routing_key": "alerts.inventory"},
+    },
+    "periodic-berth-conflict-watchdog": {
+        "task": "apps.voyages.tasks.alert_active_berth_conflicts_async",
+        "schedule": 900.0,  # every 15 minutes
+        "options": {"queue": "alerts", "routing_key": "alerts.voyages"},
+    },
+}
