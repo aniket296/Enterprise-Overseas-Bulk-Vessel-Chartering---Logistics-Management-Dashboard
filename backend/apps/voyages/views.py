@@ -15,6 +15,10 @@ from rest_framework.response import Response
 
 from .models import VesselVoyage, StatementOfFacts
 from .sof_enums import ALL_INTERRUPTION_EVENTS
+from .sof_normalizer import (
+    normalize_sof_batch,
+    build_existing_interruption_state,
+)
 from .serializers import (
     VesselVoyageSerializer,
     ActiveFleetVoyageSerializer,
@@ -308,6 +312,47 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
         serializer = SOFIngestionItemSerializer(data=events_data, many=True)
         serializer.is_valid(raise_exception=True)
 
+        # ------------------------------------------------------------------
+        # Cycle 2.2.2: SOF Timeline Normalization
+        # Performed BEFORE the atomic DB transaction:
+        #   1. UTC normalization of all event_timestamp values
+        #   2. Chronological sort (timestamp ASC, then sequence_number ASC)
+        #   3. Duplicate event detection
+        #   4. Retrograde timestamp guard against already-committed events
+        #   5. Interruption pair validation (orphaned END / unclosed START)
+        #   6. Phase precedence invariant (arrival/discharge before departure)
+        # ------------------------------------------------------------------
+        existing_sof_qs = voyage.sof_events.all().order_by("event_timestamp", "sequence_number")
+        existing_timestamps = list(existing_sof_qs.values_list("event_timestamp", flat=True))
+        existing_intr_state = build_existing_interruption_state(existing_sof_qs)
+
+        normalization_result = normalize_sof_batch(
+            serializer.validated_data,
+            existing_timestamps=existing_timestamps,
+            existing_interruption_state=existing_intr_state,
+        )
+
+        if not normalization_result.is_valid:
+            return Response(
+                {
+                    "error": "SOF_NORMALIZATION_ERRORS",
+                    "detail": (
+                        "One or more timeline normalization violations were detected. "
+                        "No events were ingested."
+                    ),
+                    "violations": [
+                        {
+                            "code": err.code,
+                            "detail": err.detail,
+                            "event_index": err.event_index,
+                            "event_type": err.event_type,
+                        }
+                        for err in normalization_result.errors
+                    ],
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
         user = request.user if getattr(request, "user", None) and request.user.is_authenticated else None
 
         created_records = []
@@ -318,8 +363,9 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
                 or 0
             )
 
-            for item in serializer.validated_data:
-                seq = item.get("sequence_number")
+            # Iterate over chronologically-sorted, UTC-normalized events
+            for norm_item in normalization_result.events:
+                seq = norm_item.sequence_number
                 if seq is None:
                     current_max_seq += 1
                     seq = current_max_seq
@@ -329,19 +375,19 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
 
                 sof = StatementOfFacts(
                     voyage=voyage,
-                    event_type=item["event_type"],
-                    event_timestamp=item["event_timestamp"],
+                    event_type=norm_item.event_type,
+                    event_timestamp=norm_item.event_timestamp,   # UTC-normalized
                     sequence_number=seq,
-                    event_description=item.get("event_description", ""),
-                    recorded_by_agent=item.get("recorded_by_agent", ""),
-                    crane_number=item.get("crane_number"),
-                    hatch_number=item.get("hatch_number"),
-                    quantity_discharged_at_event=item.get("quantity_discharged_at_event"),
-                    interruption_cause=item.get("interruption_cause", ""),
-                    weather_condition=item.get("weather_condition", ""),
-                    is_amendment=item.get("is_amendment", False),
-                    amended_sof_id=item.get("amended_sof_id"),
-                    source_document_id=item.get("source_document_id"),
+                    event_description=norm_item.event_description,
+                    recorded_by_agent=norm_item.recorded_by_agent,
+                    crane_number=norm_item.crane_number,
+                    hatch_number=norm_item.hatch_number,
+                    quantity_discharged_at_event=norm_item.quantity_discharged_at_event,
+                    interruption_cause=norm_item.interruption_cause,
+                    weather_condition=norm_item.weather_condition,
+                    is_amendment=norm_item.is_amendment,
+                    amended_sof_id=norm_item.amended_sof_id,
+                    source_document_id=norm_item.source_document_id,
                     submitted_by=user,
                 )
                 sof.full_clean()
