@@ -19,6 +19,7 @@ from .sof_normalizer import (
     normalize_sof_batch,
     build_existing_interruption_state,
 )
+from .sof_auto_classifier import auto_classify_sof_interruptions
 from .serializers import (
     VesselVoyageSerializer,
     ActiveFleetVoyageSerializer,
@@ -412,11 +413,30 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
 
             voyage.save(skip_clean=True)
 
+        # ------------------------------------------------------------------
+        # Cycle 2.2.3: Auto-classify interruption intervals
+        # Runs synchronously AFTER the atomic DB write.  Stamps count_status,
+        # count_fraction, and counted_hours on completed interruption START records.
+        # ------------------------------------------------------------------
+        # Refresh voyage so milestone timestamps include just-committed values
+        voyage.refresh_from_db()
+        classification_result = auto_classify_sof_interruptions(voyage)
+
+        # Re-fetch created records to include any auto-updated count fields
+        created_ids = [r.sof_id for r in created_records]
+        from apps.voyages.models import StatementOfFacts as SOFModel
+        refreshed_records = list(SOFModel.objects.filter(sof_id__in=created_ids).order_by("sequence_number"))
+
         return Response(
             {
                 "voyage_id": voyage.voyage_id,
                 "ingested_count": len(created_records),
-                "events": StatementOfFactsSerializer(created_records, many=True).data,
+                "events": StatementOfFactsSerializer(refreshed_records, many=True).data,
+                "classification_summary": {
+                    "classified_interruption_pairs": classification_result.classified_count,
+                    "stamped_sof_ids": classification_result.updated_sof_ids,
+                    "skipped_open_intervals": classification_result.skipped_open_count,
+                },
             },
             status=status.HTTP_201_CREATED,
         )
