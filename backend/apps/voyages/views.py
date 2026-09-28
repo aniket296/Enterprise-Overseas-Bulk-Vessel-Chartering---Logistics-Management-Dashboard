@@ -36,7 +36,9 @@ from .serializers import (
     PortCongestionKPIsSerializer,
     PortBerthTimelineReportSerializer,
     BerthAssignmentRequestSerializer,
+    VoyagePnLSerializer,
 )
+from .pnl_engine import compute_voyage_pnl_from_db, VoyagePnLError
 from .berth_conflict import (
     detect_berth_conflicts_for_window,
     detect_conflicts_for_voyage,
@@ -97,6 +99,7 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
         "transition": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value],
         "sof": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value],
         "laytime": UserRole.all_roles(),
+        "pnl": UserRole.all_roles(),
         "settle": [UserRole.SYSTEM_ADMIN.value, UserRole.FINANCE_OFFICER.value, UserRole.LOGISTICS_AGENT.value],
         "recalculate": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value, UserRole.FINANCE_OFFICER.value],
         "berth_conflicts": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value, UserRole.PROCUREMENT_OFFICER.value],
@@ -909,6 +912,34 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
             "conflict_report": BerthConflictReportSerializer(conflict_report).data if conflict_report else None,
         }
         return Response(response_data, status=status.HTTP_200_OK)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Cycle 2.5.1 — GET /api/v1/voyages/{voyage_id}/pnl/
+    # Freight Revenue & Voyage P&L Summary API
+    # ──────────────────────────────────────────────────────────────────────
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="pnl",
+        url_name="voyage-pnl",
+    )
+    def pnl(self, request, pk=None):
+        """
+        Compute and return the voyage Profit & Loss (P&L) summary.
+        Calculates gross freight revenue, laytime settlement impact (demurrage/despatch),
+        cargo outturn efficiency & shortage, and net voyage P&L.
+        """
+        voyage = self.get_object()
+        try:
+            snapshot = compute_voyage_pnl_from_db(voyage)
+        except VoyagePnLError as exc:
+            return Response(
+                {"error": exc.code, "detail": exc.detail},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        serializer = VoyagePnLSerializer(snapshot)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
 
 
 

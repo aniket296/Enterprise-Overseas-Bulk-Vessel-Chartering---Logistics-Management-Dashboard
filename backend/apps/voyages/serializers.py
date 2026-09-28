@@ -443,5 +443,44 @@ class BerthAssignmentRequestSerializer(serializers.Serializer):
     force = serializers.BooleanField(default=False, required=False)
 
 
+class VoyagePnLSerializer(serializers.Serializer):
+    """
+    Serializer for the Voyage Profit & Loss (P&L) summary.
+    """
+    voyage_id = serializers.CharField()
+    voyage_reference = serializers.CharField()
+    vessel_name = serializers.CharField()
+    cargo_type = serializers.CharField()
+    load_port = serializers.CharField()
+    discharge_port = serializers.CharField()
+
+    # Cargo outturn
+    nominated_quantity_mt = serializers.DecimalField(max_digits=12, decimal_places=4)
+    quantity_loaded_mt = serializers.DecimalField(max_digits=12, decimal_places=4)
+    quantity_discharged_mt = serializers.DecimalField(max_digits=12, decimal_places=4, allow_null=True)
+    shortage_mt = serializers.DecimalField(max_digits=12, decimal_places=4, allow_null=True)
+    cargo_outturn_efficiency_pct = serializers.DecimalField(max_digits=6, decimal_places=2, allow_null=True)
+
+    # Freight revenue
+    freight_rate_usd_per_mt = serializers.DecimalField(max_digits=10, decimal_places=2)
+    gross_freight_revenue_usd = serializers.DecimalField(max_digits=14, decimal_places=2)
+
+    # Laytime settlement
+    laytime_outcome = serializers.CharField(allow_null=True)
+    gross_demurrage_usd = serializers.DecimalField(max_digits=14, decimal_places=2)
+    gross_despatch_usd = serializers.DecimalField(max_digits=14, decimal_places=2)
+    net_settlement_usd = serializers.DecimalField(max_digits=14, decimal_places=2)
+
+    # P&L summary
+    net_voyage_pnl_usd = serializers.DecimalField(max_digits=14, decimal_places=2)
+    freight_efficiency_pct = serializers.DecimalField(max_digits=6, decimal_places=2)
+
+    # Metadata
+    laytime_calc_revision = serializers.IntegerField(allow_null=True)
+    is_settlement_final = serializers.BooleanField()
+    calculation_basis = serializers.CharField()
+
+
+
 
 
