@@ -63,6 +63,32 @@ export const logisticsApi = {
     return fetchWithAuth(`/voyages/active/${query}`, { role });
   },
 
+  getLaytimeBalance: (
+    voyageId: string,
+    role: UserRole = "LOGISTICS_DIRECTOR"
+  ): Promise<import("@/types/dashboard").LaytimeBalanceSnapshot> => {
+    return fetchWithAuth(`/voyages/${voyageId}/laytime/`, { role });
+  },
+
+  getSettlement: (
+    voyageId: string,
+    role: UserRole = "LOGISTICS_DIRECTOR"
+  ): Promise<import("@/types/dashboard").LaytimeSettlementRecord> => {
+    return fetchWithAuth(`/voyages/${voyageId}/settle/`, { role });
+  },
+
+  postSettlement: (
+    voyageId: string,
+    payload: { outcome?: string; settlement_notes?: string },
+    role: UserRole = "FINANCE_CONTROLLER"
+  ): Promise<import("@/types/dashboard").LaytimeSettlementRecord> => {
+    return fetchWithAuth(`/voyages/${voyageId}/settle/`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+      role,
+    });
+  },
+
   getExecutiveSummary: (role: UserRole = "LOGISTICS_DIRECTOR"): Promise<ExecutiveDashboardSummary> => {
     return fetchWithAuth<ExecutiveDashboardSummary>("/voyages/executive-summary/", { role });
   },

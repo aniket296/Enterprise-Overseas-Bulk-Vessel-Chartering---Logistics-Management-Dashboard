@@ -129,6 +129,54 @@ export interface ActiveFleetResponse {
   fleet: ActiveFleetVoyage[];
 }
 
+export interface LaytimeBalanceSnapshot {
+  voyage_id: string;
+  voyage_reference: string;
+  outcome: "DEMURRAGE" | "DESPATCH" | "IN_PROGRESS";
+  is_final: boolean;
+  is_indefinite_laytime: boolean;
+  allowed_hours: string | null;
+  counted_hours: string;
+  excepted_hours: string;
+  balance_hours: string;
+  demurrage_hours: string;
+  despatch_hours: string;
+  gross_demurrage_usd: string;
+  gross_despatch_usd: string;
+  net_settlement_usd: string;
+  laytime_commenced_at: string | null;
+  demurrage_commenced_at: string | null;
+  discharge_completed_at: string | null;
+  as_of_timestamp: string;
+  laytime_terms: string;
+  demurrage_rate_usd_per_day: string;
+  despatch_rate_usd_per_day: string;
+  audit_formula: string;
+  allowed_laytime_formula: string;
+  slice_count: number;
+}
+
+export interface LaytimeSettlementRecord {
+  calc_id: string;
+  voyage_id: string;
+  voyage_reference: string;
+  outcome: string;
+  is_current: boolean;
+  revision: number;
+  allowed_laytime_hours: string;
+  total_counted_hours: string;
+  total_excepted_hours: string;
+  total_port_hours: string;
+  variance_hours: string;
+  gross_demurrage_usd: string;
+  gross_despatch_usd: string;
+  net_settlement_usd: string;
+  demurrage_commenced_at?: string;
+  settlement_notes?: string;
+  settled_by_username?: string;
+  created_at: string;
+}
+
 export type UserRole =
   | "EXECUTIVE_DIRECTOR"
   | "LOGISTICS_DIRECTOR"
