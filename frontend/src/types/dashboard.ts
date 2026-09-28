@@ -177,6 +177,71 @@ export interface LaytimeSettlementRecord {
   created_at: string;
 }
 
+export interface CharterContractSummary {
+  contract_id: string;
+  contract_reference: string;
+  charter_party_type: string;
+  contract_status: string;
+  charterer_entity: string;
+  charterer_plant: string;
+  vessel: string;
+  vessel_name: string;
+  vessel_imo: string;
+  cargo_type: string;
+  nominated_quantity_mt: string;
+  tolerance_pct: string;
+  freight_rate_usd_per_mt: string;
+  load_port: string;
+  discharge_port: string;
+  discharge_berth_designated: string;
+  discharge_rate_mt_per_day: string;
+  laytime_terms: string;
+  demurrage_rate_usd_per_day: string;
+  despatch_rate_usd_per_day: string;
+  laycan_start: string;
+  laycan_end: string;
+  allowed_laytime_hours: string;
+}
+
+export interface ContractPerformance {
+  contract_id: string;
+  contract_reference: string;
+  charterer_entity: string;
+  charterer_plant: string;
+  cargo_type: string;
+  nominated_quantity_mt: string;
+  tolerance_pct: string;
+  min_commitment_mt: string;
+  max_commitment_mt: string;
+  actual_lifted_mt: string;
+  fulfillment_pct: string;
+  fulfillment_status: "COMPLIANT" | "PENDING" | "UNDER_FULFILLED" | "OVER_FULFILLED";
+  remaining_to_lift_mt: string;
+  freight_rate_usd_per_mt: string;
+  gross_freight_spend_usd: string;
+  demurrage_paid_usd: string;
+  despatch_earned_usd: string;
+  net_laytime_impact_usd: string;
+  laycan_adherence_rate_pct: string;
+  total_shortage_mt: string;
+  shortage_rate_pct: string;
+  voyages_count: number;
+}
+
+export interface CarrierScorecard {
+  owner_name: string;
+  carrier_reliability_score: number;
+  reliability_tier: "TIER_1_PREFERRED" | "TIER_2_ACCEPTABLE" | "TIER_3_PROBATION" | "BLACKLISTED";
+  total_voyages: number;
+  unique_vessels_count: number;
+  total_lifted_mt: string;
+  total_gross_freight_usd: string;
+  laycan_adherence_pct: string;
+  demurrage_incidence_pct: string;
+  average_shortage_pct: string;
+  contract_count: number;
+}
+
 export type UserRole =
   | "EXECUTIVE_DIRECTOR"
   | "LOGISTICS_DIRECTOR"

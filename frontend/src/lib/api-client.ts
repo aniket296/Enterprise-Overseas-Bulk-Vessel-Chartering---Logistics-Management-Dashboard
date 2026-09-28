@@ -89,6 +89,36 @@ export const logisticsApi = {
     });
   },
 
+  getContracts: (
+    plant?: string,
+    role: UserRole = "LOGISTICS_DIRECTOR"
+  ): Promise<import("@/types/dashboard").CharterContractSummary[]> => {
+    const query = plant && plant !== "ALL" ? `?plant=${plant}` : "";
+    return fetchWithAuth(`/contracts/${query}`, { role });
+  },
+
+  getContractPerformance: (
+    contractId: string,
+    role: UserRole = "LOGISTICS_DIRECTOR"
+  ): Promise<import("@/types/dashboard").ContractPerformance> => {
+    return fetchWithAuth(`/contracts/${contractId}/performance/`, { role });
+  },
+
+  getCarrierScorecards: (
+    role: UserRole = "LOGISTICS_DIRECTOR"
+  ): Promise<import("@/types/dashboard").CarrierScorecard[]> => {
+    return fetchWithAuth(`/contracts/carrier-scorecard/`, { role });
+  },
+
+  seedBalticFixtures: (
+    role: UserRole = "LOGISTICS_DIRECTOR"
+  ): Promise<{ message: string; total_scenarios: number }> => {
+    return fetchWithAuth(`/contracts/seed-baltic-fixtures/`, {
+      method: "POST",
+      role,
+    });
+  },
+
   getExecutiveSummary: (role: UserRole = "LOGISTICS_DIRECTOR"): Promise<ExecutiveDashboardSummary> => {
     return fetchWithAuth<ExecutiveDashboardSummary>("/voyages/executive-summary/", { role });
   },
