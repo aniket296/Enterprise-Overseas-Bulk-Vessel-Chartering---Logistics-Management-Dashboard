@@ -341,3 +341,44 @@ class LaytimeCalculationSerializer(serializers.ModelSerializer):
         ]
 
 
+class BerthConflictDetailSerializer(serializers.Serializer):
+    """Pairwise conflict detail between two voyages."""
+    voyage_id_a = serializers.CharField(allow_null=True)
+    voyage_ref_a = serializers.CharField(allow_null=True)
+    voyage_id_b = serializers.CharField()
+    voyage_ref_b = serializers.CharField()
+    vessel_name_b = serializers.CharField()
+    discharge_port = serializers.CharField()
+    discharge_berth = serializers.CharField()
+    overlap_start = serializers.DateTimeField()
+    overlap_end = serializers.DateTimeField()
+    overlap_hours = serializers.DecimalField(max_digits=8, decimal_places=2)
+    severity = serializers.CharField()
+
+
+class BerthConflictReportSerializer(serializers.Serializer):
+    """Consolidated conflict report for a berth or window."""
+    discharge_port = serializers.CharField()
+    discharge_berth = serializers.CharField()
+    has_conflict = serializers.BooleanField()
+    conflict_count = serializers.IntegerField()
+    conflicts = BerthConflictDetailSerializer(many=True)
+    earliest_available_at = serializers.DateTimeField(allow_null=True)
+    evaluated_at = serializers.DateTimeField()
+
+
+class BerthConflictValidationRequestSerializer(serializers.Serializer):
+    """Validates payload when testing a proposed berthing window."""
+    discharge_port = serializers.CharField(max_length=120)
+    discharge_berth = serializers.CharField(max_length=60)
+    start_time = serializers.DateTimeField()
+    end_time = serializers.DateTimeField()
+    exclude_voyage_id = serializers.UUIDField(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        if attrs["start_time"] >= attrs["end_time"]:
+            raise serializers.ValidationError({"end_time": "end_time must be strictly after start_time."})
+        return attrs
+
+
+

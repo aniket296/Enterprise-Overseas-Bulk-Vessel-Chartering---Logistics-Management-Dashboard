@@ -30,6 +30,14 @@ from .serializers import (
     SOFIngestionItemSerializer,
     SOFResponseWrapperSerializer,
     LaytimeCalculationSerializer,
+    BerthConflictDetailSerializer,
+    BerthConflictReportSerializer,
+    BerthConflictValidationRequestSerializer,
+)
+from .berth_conflict import (
+    detect_berth_conflicts_for_window,
+    detect_conflicts_for_voyage,
+    sweep_all_active_berth_conflicts,
 )
 from .state_machine import (
     VoyageStateMachine,
@@ -81,6 +89,8 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
         "sof": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value],
         "laytime": UserRole.all_roles(),
         "settle": [UserRole.SYSTEM_ADMIN.value, UserRole.FINANCE_OFFICER.value, UserRole.LOGISTICS_AGENT.value],
+        "berth_conflicts": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value, UserRole.PROCUREMENT_OFFICER.value],
+        "voyage_berth_conflicts": UserRole.all_roles(),
     }
 
     def get_queryset(self):
@@ -662,4 +672,69 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
                 res_status = status.HTTP_201_CREATED
 
         return Response(LaytimeCalculationSerializer(calc_record).data, status=res_status)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Cycle 2.3.1 — GET / POST /api/v1/voyages/berth-conflicts/
+    # Berth Conflict Detection & Pre-allocation Validator API
+    # ──────────────────────────────────────────────────────────────────────
+    @action(
+        detail=False,
+        methods=["get", "post"],
+        url_path="berth-conflicts",
+        url_name="berth-conflicts",
+    )
+    def berth_conflicts(self, request):
+        """
+        GET /api/v1/voyages/berth-conflicts/
+          Fleet-wide sweep of all active berth collisions.
+          Optional query parameters: discharge_port, discharge_berth.
+
+        POST /api/v1/voyages/berth-conflicts/
+          Pre-allocation validator: tests whether a proposed berthing window [start_time, end_time)
+          conflicts with any currently assigned vessel at (discharge_port, discharge_berth).
+        """
+        if request.method == "GET":
+            port = request.query_params.get("discharge_port")
+            berth = request.query_params.get("discharge_berth")
+            conflicts = sweep_all_active_berth_conflicts(discharge_port=port, discharge_berth=berth)
+            serializer = BerthConflictDetailSerializer(conflicts, many=True)
+            return Response(
+                {
+                    "total_conflicts": len(conflicts),
+                    "discharge_port": port,
+                    "discharge_berth": berth,
+                    "conflicts": serializer.data,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        # POST: Validate proposed berthing window
+        val_serializer = BerthConflictValidationRequestSerializer(data=request.data)
+        val_serializer.is_valid(raise_exception=True)
+        data = val_serializer.validated_data
+
+        report = detect_berth_conflicts_for_window(
+            discharge_port=data["discharge_port"],
+            discharge_berth=data["discharge_berth"],
+            start_time=data["start_time"],
+            end_time=data["end_time"],
+            exclude_voyage_id=str(data["exclude_voyage_id"]) if data.get("exclude_voyage_id") else None,
+        )
+        return Response(BerthConflictReportSerializer(report).data, status=status.HTTP_200_OK)
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="berth-conflicts",
+        url_name="voyage-berth-conflicts",
+    )
+    def voyage_berth_conflicts(self, request, pk=None):
+        """
+        GET /api/v1/voyages/{voyage_id}/berth-conflicts/
+          Audit berth conflicts specifically involving this voyage.
+        """
+        voyage = self.get_object()
+        report = detect_conflicts_for_voyage(voyage)
+        return Response(BerthConflictReportSerializer(report).data, status=status.HTTP_200_OK)
+
 
