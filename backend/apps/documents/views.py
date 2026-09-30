@@ -47,6 +47,7 @@ class ShippingDocumentViewSet(viewsets.ModelViewSet):
 
     action_roles = {
         "create": list(DOCUMENT_WRITE_ROLES),
+        "upload": list(DOCUMENT_WRITE_ROLES),
         "approve": list(DOCUMENT_APPROVE_ROLES),
         "supersede": list(DOCUMENT_WRITE_ROLES),
         "verify": list(DOCUMENT_WRITE_ROLES),
@@ -148,6 +149,14 @@ class ShippingDocumentViewSet(viewsets.ModelViewSet):
             response_data["async_verification"] = async_task
 
         return Response(response_data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["post"], url_path="upload")
+    def upload(self, request, *args, **kwargs):
+        """
+        POST /api/v1/documents/upload/
+        Dedicated endpoint for multipart shipping document upload & SHA-256 verification.
+        """
+        return self.create(request, *args, **kwargs)
 
     def retrieve(self, request, *args, **kwargs):
         """

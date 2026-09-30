@@ -153,6 +153,26 @@ export const logisticsApi = {
     );
   },
 
+  getBerthTimeline: (
+    dischargePort: string = "Paradip",
+    role: UserRole = "LOGISTICS_DIRECTOR"
+  ): Promise<import("@/types/dashboard").PortBerthTimelineReport> => {
+    return fetchWithAuth(`/voyages/berth-timeline/?discharge_port=${dischargePort}`, { role });
+  },
+
+  assignBerth: (
+    voyageId: string,
+    dischargeBerth: string,
+    force: boolean = false,
+    role: UserRole = "PORT_LOGISTICS_AGENT"
+  ): Promise<any> => {
+    return fetchWithAuth(`/voyages/${voyageId}/berth/`, {
+      method: "PATCH",
+      body: JSON.stringify({ discharge_berth: dischargeBerth, force }),
+      role,
+    });
+  },
+
   checkHealth: async (): Promise<boolean> => {
     try {
       const baseUrl = getApiBaseUrl();

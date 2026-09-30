@@ -12,5 +12,6 @@ router = DefaultRouter()
 router.register(r"documents", ShippingDocumentViewSet, basename="shipping-documents")
 
 urlpatterns = [
+    path("documents/upload", ShippingDocumentViewSet.as_view({"post": "upload"}), name="document-upload-noslash"),
     path("", include(router.urls)),
 ]

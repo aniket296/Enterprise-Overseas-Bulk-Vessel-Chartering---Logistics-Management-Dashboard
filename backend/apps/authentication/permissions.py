@@ -56,7 +56,7 @@ class RoleBasedAccessControl(permissions.BasePermission):
             return True
 
         # Mutation check against action_roles
-        action = getattr(view, "action", None)
+        action = getattr(view, "action", None) or request.method.lower()
         action_roles = getattr(view, "action_roles", None)
 
         if action_roles and action and action in action_roles:

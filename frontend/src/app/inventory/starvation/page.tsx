@@ -246,7 +246,7 @@ export default function StarvationWarningPage() {
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs font-mono">
-                <thead className="bg-sail-dark text-slate-400 border-b border-sail-border uppercase">
+                <thead className="bg-sail-dark text-slate-400 border-b border-sail-border uppercase sticky top-0 z-10">
                   <tr>
                     <th className="py-3 px-4">Plant Code</th>
                     <th className="py-3 px-4 text-right">Physical Stock (MT)</th>

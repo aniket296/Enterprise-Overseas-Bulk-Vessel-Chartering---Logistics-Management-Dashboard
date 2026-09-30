@@ -626,7 +626,7 @@ export default function InboundForecastPage() {
 
             <div className="overflow-x-auto max-h-[440px]">
               <table className="w-full text-left text-xs font-mono">
-                <thead className="bg-sail-dark text-slate-400 border-b border-sail-border uppercase sticky top-0">
+                <thead className="bg-sail-dark text-slate-400 border-b border-sail-border uppercase sticky top-0 z-10">
                   <tr>
                     <th className="py-3 px-4">Offset</th>
                     <th className="py-3 px-4">Simulation Date</th>

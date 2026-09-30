@@ -12,5 +12,6 @@ router = DefaultRouter()
 router.register(r"inventory", PlantInventoryViewSet, basename="inventory")
 
 urlpatterns = [
+    path("inventory/reconciliation", PlantInventoryViewSet.as_view({"get": "reconciliation"}), name="inventory-reconciliation-noslash"),
     path("", include(router.urls)),
 ]

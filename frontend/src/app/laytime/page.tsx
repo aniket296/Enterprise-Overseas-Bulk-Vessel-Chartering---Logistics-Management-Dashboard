@@ -536,7 +536,7 @@ export default function LaytimeDashboardPage() {
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs font-mono">
-                <thead className="bg-sail-dark text-slate-400 border-b border-sail-border uppercase">
+                <thead className="bg-sail-dark text-slate-400 border-b border-sail-border uppercase sticky top-0 z-10">
                   <tr>
                     <th className="py-3 px-4">Voyage Ref</th>
                     <th className="py-3 px-4">Vessel Name</th>
@@ -558,10 +558,10 @@ export default function LaytimeDashboardPage() {
                         v.voyage_id === selectedVoyageId ? "bg-sail-dark/90 border-l-2 border-emerald-400" : ""
                       }`}
                     >
-                      <td className="py-3 px-4 font-bold text-white">{v.voyage_reference}</td>
-                      <td className="py-3 px-4 text-slate-300">{v.vessel_name}</td>
-                      <td className="py-3 px-4 text-slate-400">{v.contract_reference}</td>
-                      <td className="py-3 px-4 text-sail-cyan">{v.discharge_port}</td>
+                      <td className="py-3 px-4 font-bold text-white max-w-[130px] truncate" title={v.voyage_reference}>{v.voyage_reference}</td>
+                      <td className="py-3 px-4 text-slate-300 max-w-[160px] truncate" title={v.vessel_name}>{v.vessel_name}</td>
+                      <td className="py-3 px-4 text-slate-400 max-w-[130px] truncate" title={v.contract_reference}>{v.contract_reference}</td>
+                      <td className="py-3 px-4 text-sail-cyan max-w-[120px] truncate" title={v.discharge_port}>{v.discharge_port}</td>
                       <td className="py-3 px-4 text-emerald-400">{v.charterer_plant}</td>
                       <td className="py-3 px-4 text-slate-300">{v.laytime_terms}</td>
                       <td className="py-3 px-4 text-right text-slate-200">

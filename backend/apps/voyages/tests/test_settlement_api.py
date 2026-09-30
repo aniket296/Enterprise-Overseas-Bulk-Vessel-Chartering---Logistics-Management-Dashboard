@@ -455,3 +455,20 @@ class TestDemurrageSettlementAPI:
         assert (rec.total_counted_hours + rec.total_excepted_hours) <= (rec.total_port_hours + Decimal("0.001"))
         # Financial invariant: not both demurrage and despatch non-zero
         assert rec.gross_demurrage_usd == Decimal("0.00") or rec.gross_despatch_usd == Decimal("0.00")
+
+    def test_logistics_agent_cannot_approve_settlement_vertical_privilege_escalation(
+        self, api_client, db, logistics_user
+    ):
+        """Port Logistics Agent is blocked (403) from approving or locking financial settlement."""
+        _, _, voyage = self._setup_voyage(db, "S13", "SHINC")
+        _seed_sof(voyage, [
+            {"event_type": "DISCHARGE_COMMENCED", "event_timestamp": _utc(2025, 7, 16, 8)},
+            {"event_type": "DISCHARGE_COMPLETED", "event_timestamp": _utc(2025, 7, 18, 0)},
+        ])
+
+        api_client.force_authenticate(user=logistics_user)
+        url = f"/api/v1/voyages/{voyage.voyage_id}/settle/"
+        res = api_client.post(url, {"outcome": "SETTLED", "settlement_notes": "Attempting agent lock"}, format="json")
+        assert res.status_code == drf_status.HTTP_403_FORBIDDEN
+        assert "Port Logistics Agents cannot approve" in res.json()["detail"]
+

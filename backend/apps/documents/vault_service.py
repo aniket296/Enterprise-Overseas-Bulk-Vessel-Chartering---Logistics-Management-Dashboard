@@ -58,14 +58,51 @@ class DocumentVaultService:
 
     @classmethod
     def get_storage_path(cls, bucket: str, object_key: str) -> Path:
-        """Resolves the local air-gapped filesystem storage path."""
-        base_dir = getattr(
+        """
+        Resolves the local air-gapped filesystem storage path.
+        Defensively validates against directory traversal (e.g. '../').
+        """
+        base_dir = Path(getattr(
             settings,
             "DOCUMENTS_VAULT_LOCAL_DIR",
             settings.BASE_DIR / "media" / "documents_vault",
-        )
-        safe_path = Path(base_dir) / bucket / object_key
+        )).resolve()
+
+        clean_bucket = bucket.replace("\\", "/").strip("/")
+        clean_key = object_key.replace("\\", "/").strip("/")
+        if ".." in clean_bucket or ".." in clean_key:
+            raise ValidationError("Path traversal sequence '..' detected in storage parameters.")
+
+        safe_path = (base_dir / clean_bucket / clean_key).resolve()
+        if not str(safe_path).startswith(str(base_dir)):
+            raise ValidationError("Resolved storage path escapes authorized vault root directory.")
+
         return safe_path
+
+    @classmethod
+    def generate_presigned_upload_spec(
+        cls,
+        bucket: str,
+        object_key: str,
+        expires_in_seconds: int = 300,
+        max_file_size_bytes: int = 104857600,
+    ) -> Dict[str, Any]:
+        """
+        Generates pre-signed upload metadata strictly expiring within <= 300s (5 minutes)
+        and enforcing Content-Length restrictions per Pillar II.2.
+        """
+        if expires_in_seconds > 300:
+            raise ValidationError("Pre-signed upload expiration cannot exceed 300 seconds (5 minutes).")
+
+        return {
+            "upload_url": f"http://{getattr(settings, 'MINIO_ENDPOINT', 'localhost:9000')}/{bucket}/{object_key}",
+            "expires_in": expires_in_seconds,
+            "max_file_size_bytes": max_file_size_bytes,
+            "required_headers": {
+                "Content-Type": "application/octet-stream",
+                "x-amz-server-side-encryption": "AES256",
+            },
+        }
 
     @classmethod
     def store_file_payload(

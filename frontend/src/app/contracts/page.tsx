@@ -431,7 +431,7 @@ export default function ContractsPage() {
 
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs font-mono">
-                  <thead className="bg-sail-dark text-slate-400 border-b border-sail-border uppercase">
+                  <thead className="bg-sail-dark text-slate-400 border-b border-sail-border uppercase sticky top-0 z-10">
                     <tr>
                       <th className="py-3 px-4">Contract Ref</th>
                       <th className="py-3 px-4">Plant</th>
@@ -461,13 +461,13 @@ export default function ContractsPage() {
                             }`}
                             onClick={() => setSelectedContractId(c.contract_id)}
                           >
-                            <td className="py-3 px-4 font-bold text-white">
+                            <td className="py-3 px-4 font-bold text-white max-w-[140px] truncate" title={c.contract_reference}>
                               {c.contract_reference}
                             </td>
                             <td className="py-3 px-4 text-emerald-400 font-medium">
                               {c.charterer_plant}
                             </td>
-                            <td className="py-3 px-4 text-slate-300">{c.vessel_name}</td>
+                            <td className="py-3 px-4 text-slate-300 max-w-[160px] truncate" title={c.vessel_name}>{c.vessel_name}</td>
                             <td className="py-3 px-4 text-slate-400">{c.cargo_type}</td>
                             <td className="py-3 px-4 text-right text-slate-200">
                               {formatNumber(c.nominated_quantity_mt)} MT

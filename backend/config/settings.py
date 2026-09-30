@@ -138,15 +138,43 @@ REST_FRAMEWORK = {
         "rest_framework.parsers.FormParser",
         "rest_framework.parsers.MultiPartParser",
     ],
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.ScopedRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "100/minute",
+        "user": "300/minute",
+        "calculations": "30/minute",
+        "uploads": "30/minute",
+    },
 }
 
 # RBAC Security Configuration
 RBAC_REQUIRE_AUTHENTICATION = os.environ.get("RBAC_REQUIRE_AUTHENTICATION", "false").lower() == "true"
 RBAC_DEFAULT_ANONYMOUS_ROLE = os.environ.get("RBAC_DEFAULT_ANONYMOUS_ROLE", "SYSTEM_ADMIN")
 
-# CORS Configuration for Next.js Frontend
-CORS_ALLOW_ALL_ORIGINS = True
+# CORS Defensive Hardening (Zero Wildcards per Pillar II.3)
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,http://127.0.0.1:8000,http://frontend:3000",
+    ).split(",")
+    if origin.strip()
+]
 CORS_ALLOW_CREDENTIALS = True
+
+# Transport & Session Security
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Strict"
+CSRF_COOKIE_HTTPONLY = False
+CSRF_COOKIE_SAMESITE = "Strict"
+if not DEBUG:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
 
 # Document Vault & Object Storage (MinIO / S3 / Local Air-Gapped)
 MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "localhost:9000")

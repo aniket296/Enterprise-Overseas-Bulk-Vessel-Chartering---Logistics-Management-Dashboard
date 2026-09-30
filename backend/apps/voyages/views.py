@@ -97,22 +97,23 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
         "list": UserRole.all_roles(),
         "retrieve": UserRole.all_roles(),
         "active_fleet": UserRole.all_roles(),
-        "create": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value, UserRole.PROCUREMENT_OFFICER.value],
-        "update": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value],
-        "partial_update": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value],
+        "create": [UserRole.SYSTEM_ADMIN.value, UserRole.PROCUREMENT_OFFICER.value],
+        "update": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value, UserRole.PROCUREMENT_OFFICER.value],
+        "partial_update": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value, UserRole.PROCUREMENT_OFFICER.value],
         "destroy": [UserRole.SYSTEM_ADMIN.value],
         "transition": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value],
         "sof": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value],
         "laytime": UserRole.all_roles(),
         "pnl": UserRole.all_roles(),
         "analytics": UserRole.all_roles(),
-        "settle": [UserRole.SYSTEM_ADMIN.value, UserRole.FINANCE_OFFICER.value, UserRole.LOGISTICS_AGENT.value],
-        "recalculate": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value, UserRole.FINANCE_OFFICER.value],
+        "settle": [UserRole.SYSTEM_ADMIN.value, UserRole.FINANCE_OFFICER.value, UserRole.PROCUREMENT_OFFICER.value, UserRole.LOGISTICS_AGENT.value],
+        "recalculate": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value, UserRole.FINANCE_OFFICER.value, UserRole.PROCUREMENT_OFFICER.value],
         "berth_conflicts": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value, UserRole.PROCUREMENT_OFFICER.value],
         "voyage_berth_conflicts": UserRole.all_roles(),
         "berth_timeline": UserRole.all_roles(),
         "port_congestion": UserRole.all_roles(),
         "assign_berth": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value, UserRole.PROCUREMENT_OFFICER.value],
+        "berth": [UserRole.SYSTEM_ADMIN.value, UserRole.LOGISTICS_AGENT.value, UserRole.PROCUREMENT_OFFICER.value],
         "executive_summary": UserRole.all_roles(),
     }
 
@@ -667,7 +668,20 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
         now = timezone.now()
 
         # Target outcome: if client specifies valid outcome (e.g. SETTLED / DISPUTED), honor it; else snapshot outcome
-        final_outcome = req_outcome if req_outcome in [tag.value for tag in LaytimeOutcome] else snapshot.outcome
+        if req_outcome in [tag.value for tag in LaytimeOutcome]:
+            from apps.authentication.models import get_user_role
+            user_role = get_user_role(request.user) if request.user and request.user.is_authenticated else request.headers.get("X-User-Role")
+            if user_role == UserRole.LOGISTICS_AGENT.value and req_outcome in (LaytimeOutcome.SETTLED.value, LaytimeOutcome.DISPUTED.value):
+                return Response(
+                    {
+                        "error": "FORBIDDEN",
+                        "detail": "Port Logistics Agents cannot approve or lock financial settlements (SETTLED/DISPUTED). Approval requires Finance Officer or Procurement Officer role.",
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            final_outcome = req_outcome
+        else:
+            final_outcome = snapshot.outcome
 
         with transaction.atomic():
             if existing:
@@ -919,6 +933,20 @@ class VesselVoyageViewSet(viewsets.ModelViewSet):
             "conflict_report": BerthConflictReportSerializer(conflict_report).data if conflict_report else None,
         }
         return Response(response_data, status=status.HTTP_200_OK)
+
+    @action(
+        detail=True,
+        methods=["patch", "post"],
+        url_path="berth",
+        url_name="berth",
+    )
+    def berth(self, request, pk=None):
+        """
+        PATCH/POST /api/v1/voyages/{voyage_id}/berth
+        Parity endpoint for berth assignment and modification.
+        Enforces 409 Conflict on overlapping occupancy windows unless force=true.
+        """
+        return self.assign_berth(request, pk=pk)
 
     # ──────────────────────────────────────────────────────────────────────
     # Cycle 2.5.1 — GET /api/v1/voyages/{voyage_id}/pnl/

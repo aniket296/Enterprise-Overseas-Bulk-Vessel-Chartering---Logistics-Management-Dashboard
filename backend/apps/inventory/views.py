@@ -4,6 +4,8 @@ backend/apps/inventory/views.py
 DRF ViewSets for Steel Plant Inventory & Blast Furnace Runway API.
 """
 
+from decimal import Decimal, ROUND_HALF_UP
+from django.utils import timezone
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -50,6 +52,7 @@ class PlantInventoryViewSet(viewsets.ModelViewSet):
         "inbound_forecast": UserRole.all_roles(),
         "starvation_matrix": UserRole.all_roles(),
         "simulate_mitigation": UserRole.all_roles(),
+        "reconciliation": UserRole.all_roles(),
         "trigger_alert_scan": [UserRole.SYSTEM_ADMIN.value, UserRole.PLANT_MANAGER.value, UserRole.LOGISTICS_AGENT.value],
         "create": [UserRole.SYSTEM_ADMIN.value, UserRole.PLANT_MANAGER.value],
         "update": [UserRole.SYSTEM_ADMIN.value, UserRole.PLANT_MANAGER.value],
@@ -337,5 +340,88 @@ class PlantInventoryViewSet(viewsets.ModelViewSet):
                 {"error": f"Failed to simulate starvation mitigation: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+    @action(detail=False, methods=["get"], url_path="reconciliation")
+    def reconciliation(self, request):
+        """
+        GET /api/v1/inventory/reconciliation/
+        Physical vs in-transit delivery inventory reconciliation across SAIL steel plants.
+        """
+        plant_param = request.query_params.get("plant") or request.query_params.get("plant_code")
+        category_param = request.query_params.get("material_category", "COKING_COAL").strip().upper()
+
+        qs = PlantInventory.objects.all().order_by("plant_code", "-stock_date")
+        if plant_param and plant_param.strip().upper() != "ALL":
+            qs = qs.filter(plant_code=plant_param.strip().upper())
+        if category_param:
+            qs = qs.filter(material_category=category_param)
+
+        # Get latest record per plant
+        seen_plants = set()
+        latest_records = []
+        for record in qs:
+            if record.plant_code not in seen_plants:
+                seen_plants.add(record.plant_code)
+                latest_records.append(record)
+
+        total_physical_stock = Decimal("0.000")
+        total_burn_rate = Decimal("0.000")
+        total_pipeline = Decimal("0.000")
+        plant_reconciliations = []
+
+        for r in latest_records:
+            closing = r.closing_stock_mt or Decimal("0.000")
+            opening = r.opening_stock_mt or Decimal("0.000")
+            receipts = r.receipts_mt or Decimal("0.000")
+            consumption = r.consumption_mt or Decimal("0.000")
+            pipeline = r.projected_receipts_mt or Decimal("0.000")
+            burn_rate = r.daily_consumption_rate_mt or Decimal("0.001")
+
+            theoretical = opening + receipts - consumption
+            variance = closing - theoretical
+            runway = (closing / burn_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if burn_rate > 0 else Decimal("0.00")
+
+            total_physical_stock += closing
+            total_burn_rate += burn_rate
+            total_pipeline += pipeline
+
+            plant_reconciliations.append({
+                "plant_code": r.plant_code,
+                "plant_name": r.plant_name,
+                "plant_location": r.plant_location,
+                "material_category": r.material_category,
+                "stock_date": r.stock_date.isoformat(),
+                "opening_stock_mt": str(opening),
+                "receipts_mt": str(receipts),
+                "consumption_mt": str(consumption),
+                "closing_stock_mt": str(closing),
+                "theoretical_balance_mt": str(theoretical),
+                "variance_mt": str(variance),
+                "is_balanced": variance == Decimal("0.000"),
+                "daily_burn_rate_mt": str(burn_rate),
+                "projected_pipeline_mt": str(pipeline),
+                "stock_runway_days": str(runway),
+                "safety_status": r.safety_status,
+            })
+
+        avg_runway = (
+            (total_physical_stock / total_burn_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if total_burn_rate > 0 else Decimal("0.00")
+        )
+
+        return Response({
+            "status": "RECONCILED",
+            "material_category": category_param,
+            "total_plants_audited": len(plant_reconciliations),
+            "network_totals": {
+                "total_physical_stock_mt": str(total_physical_stock),
+                "total_burn_rate_mt": str(total_burn_rate),
+                "total_pipeline_inbound_mt": str(total_pipeline),
+                "network_average_runway_days": str(avg_runway),
+            },
+            "plants": plant_reconciliations,
+            "reconciled_at": timezone.now().isoformat(),
+        }, status=status.HTTP_200_OK)
+
 
 

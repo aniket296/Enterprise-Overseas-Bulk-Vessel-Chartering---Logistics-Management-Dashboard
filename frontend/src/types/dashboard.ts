@@ -362,11 +362,72 @@ export interface StarvationMitigationSimulation {
   simulated_at: string;
 }
 
+export interface BerthScheduleItem {
+  voyage_id: string;
+  voyage_reference: string;
+  vessel_name: string;
+  vessel_imo: string;
+  cargo_type: string;
+  quantity_mt: string;
+  voyage_status: string;
+  is_actual: boolean;
+  start_time: string;
+  end_time: string;
+  duration_hours: string;
+  has_conflict: boolean;
+  conflicts_with: string[];
+}
+
+export interface AnchorageQueueItem {
+  voyage_id: string;
+  voyage_reference: string;
+  vessel_name: string;
+  vessel_imo: string;
+  cargo_type: string;
+  quantity_mt: string;
+  voyage_status: string;
+  eta_date: string;
+  ata_date: string | null;
+  nor_tendered_at: string | null;
+  assigned_berth: string | null;
+  waiting_hours: string | null;
+}
+
+export interface PortCongestionKPIs {
+  discharge_port: string;
+  total_active_vessels: number;
+  vessels_berthed_count: number;
+  vessels_at_anchorage_count: number;
+  vessels_unassigned_berth_count: number;
+  total_cargo_berthed_mt: string;
+  total_cargo_waiting_mt: string;
+  average_anchorage_wait_hours: string | null;
+  congestion_level: "LOW" | "MODERATE" | "HIGH" | string;
+  as_of: string;
+}
+
+export interface PortBerthTimelineReport {
+  discharge_port: string;
+  kpis: PortCongestionKPIs;
+  berths: Record<string, BerthScheduleItem[]>;
+  anchorage_queue: AnchorageQueueItem[];
+  total_conflicts_detected: number;
+}
+
 export type UserRole =
   | "EXECUTIVE_DIRECTOR"
   | "LOGISTICS_DIRECTOR"
   | "CHARTERING_MANAGER"
   | "PORT_OPERATOR"
-  | "FINANCE_CONTROLLER";
+  | "FINANCE_CONTROLLER"
+  | "PORT_LOGISTICS_AGENT"
+  | "LOGISTICS_AGENT"
+  | "CHARTERING_BROKER"
+  | "PLANT_PROCUREMENT_OFFICER"
+  | "PROCUREMENT_OFFICER"
+  | "FINANCE_OFFICER"
+  | "SYSTEM_ADMIN"
+  | string;
 
 export type PlantCode = "ALL" | "BSP" | "DSP" | "RSP" | "BSL" | "ISP";
+

@@ -24,6 +24,7 @@ import {
   ChevronRight,
   Waves,
 } from "lucide-react";
+import BerthingGantt from "@/components/berthing/BerthingGantt";
 
 // Geographic coordinates for key ports in the SAIL bulk shipping network
 const KNOWN_PORTS: Record<string, { lat: number; lon: number; country: string; type: "DISCHARGE" | "LOAD" }> = {
@@ -67,6 +68,7 @@ export default function FleetTrackingPage() {
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [cargoFilter, setCargoFilter] = useState<string>("ALL");
   const [selectedVoyage, setSelectedVoyage] = useState<ActiveFleetVoyage | null>(null);
+  const [activeView, setActiveView] = useState<"CORRIDOR_MAP" | "BERTHING_GANTT">("CORRIDOR_MAP");
 
   const fetchFleet = useCallback(async () => {
     setLoading(true);
@@ -173,6 +175,32 @@ export default function FleetTrackingPage() {
               <span className="text-emerald-300">At Berth: </span>
               <strong className="text-white">{fleetData.summary.vessels_at_berth_count}</strong>
             </div>
+
+            {/* View Mode Toggle */}
+            <div className="flex items-center gap-1 bg-sail-card p-1 rounded-xl border border-sail-border">
+              <button
+                onClick={() => setActiveView("CORRIDOR_MAP")}
+                className={`px-3 py-1 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition-all ${
+                  activeView === "CORRIDOR_MAP"
+                    ? "bg-sail-accent text-white shadow"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <Compass className="w-3.5 h-3.5" />
+                <span>Maritime Corridor</span>
+              </button>
+              <button
+                onClick={() => setActiveView("BERTHING_GANTT")}
+                className={`px-3 py-1 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition-all ${
+                  activeView === "BERTHING_GANTT"
+                    ? "bg-sail-accent text-white shadow"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                <Waves className="w-3.5 h-3.5 text-sail-cyan" />
+                <span>Berthing Gantt</span>
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -249,11 +277,12 @@ export default function FleetTrackingPage() {
         </div>
       )}
 
-      {/* Main Workspace: Geospatial Map + Live Vessel Telemetry Drawer */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left 2 Cols: Interactive Maritime Map Canvas */}
-        <div className="lg:col-span-2 rounded-xl bg-sail-card border border-sail-border overflow-hidden flex flex-col">
-          <div className="p-3.5 border-b border-sail-border flex items-center justify-between bg-sail-dark/60">
+      {/* Main Workspace: Geospatial Map OR Berthing Gantt */}
+      {activeView === "CORRIDOR_MAP" ? (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left 2 Cols: Interactive Maritime Map Canvas */}
+          <div className="lg:col-span-2 rounded-xl bg-sail-card border border-sail-border overflow-hidden flex flex-col">
+            <div className="p-3.5 border-b border-sail-border flex items-center justify-between bg-sail-dark/60">
             <div className="flex items-center gap-2">
               <Compass className="w-4 h-4 text-sail-cyan" />
               <h2 className="text-xs font-bold text-white uppercase tracking-wider">
@@ -624,6 +653,9 @@ export default function FleetTrackingPage() {
           )}
         </div>
       </div>
+    ) : (
+      <BerthingGantt role={role} onRefreshTrigger={refreshTrigger} />
+    )}
 
       {/* High-Density Tabular Fleet Listing */}
       <div className="rounded-xl bg-sail-card border border-sail-border overflow-hidden">
@@ -639,7 +671,7 @@ export default function FleetTrackingPage() {
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs font-mono">
-            <thead className="bg-sail-dark text-slate-400 border-b border-sail-border uppercase">
+            <thead className="bg-sail-dark text-slate-400 border-b border-sail-border uppercase sticky top-0 z-10">
               <tr>
                 <th className="py-3 px-4">Vessel Name</th>
                 <th className="py-3 px-4">Voyage Ref</th>
@@ -672,19 +704,23 @@ export default function FleetTrackingPage() {
                       }`}
                       onClick={() => setSelectedVoyage(voyage)}
                     >
-                      <td className="py-3 px-4 font-bold text-white">
+                      <td className="py-3 px-4 font-bold text-white max-w-[190px] truncate" title={voyage.vessel_name}>
                         <div className="flex items-center gap-2">
-                          <Ship className="w-3.5 h-3.5 text-sail-cyan" />
-                          <span>{voyage.vessel_name}</span>
+                          <Ship className="w-3.5 h-3.5 text-sail-cyan shrink-0" />
+                          <span className="truncate">{voyage.vessel_name}</span>
                         </div>
                       </td>
-                      <td className="py-3 px-4 text-slate-300">{voyage.voyage_reference}</td>
+                      <td className="py-3 px-4 text-slate-300 max-w-[130px] truncate" title={voyage.voyage_reference}>
+                        {voyage.voyage_reference}
+                      </td>
                       <td className="py-3 px-4 text-slate-400">{voyage.cargo_type}</td>
                       <td className="py-3 px-4 text-right text-slate-200">
                         {formatNumber(voyage.quantity_loaded_mt)}
                       </td>
-                      <td className="py-3 px-4 text-slate-400">{voyage.load_port}</td>
-                      <td className="py-3 px-4 text-sail-cyan font-medium">
+                      <td className="py-3 px-4 text-slate-400 max-w-[120px] truncate" title={voyage.load_port}>
+                        {voyage.load_port}
+                      </td>
+                      <td className="py-3 px-4 text-sail-cyan font-medium max-w-[130px] truncate" title={voyage.discharge_port}>
                         {voyage.discharge_port}
                       </td>
                       <td className="py-3 px-4 text-emerald-400">{voyage.charterer_plant}</td>
