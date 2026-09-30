@@ -215,13 +215,16 @@ copy .env.example .env
 # 4. Run database migrations (SQLite dev / PostgreSQL prod)
 python backend/manage.py migrate
 
-# 5. Execute air-gapped system verification check
+# 5. Seed realistic operational maritime demo data (Vessels, Voyages, Plants, Contracts)
+python scripts/seed_demo_data.py
+
+# 6. Execute air-gapped system verification check (40/40 checks)
 python scripts/verify_system.py
 
-# 6. Run complete test suite (661 tests)
+# 7. Run complete test suite (661 tests)
 python -m pytest backend/ -q --tb=short
 
-# 7. Start Django development server
+# 8. Start Django development server
 python backend/manage.py runserver 0.0.0.0:8000
 ```
 
