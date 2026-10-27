@@ -98,7 +98,7 @@ class PlantInventoryViewSet(viewsets.ModelViewSet):
           If ?plant_code=BSP is provided: returns detailed material runway analyses for that plant.
           If plant_code is omitted: returns PlantHealthSummary across all SAIL plants.
         """
-        plant_code = request.query_params.get("plant_code")
+        plant_code = request.query_params.get("plant_code") or request.query_params.get("starving_plant")
 
         if plant_code:
             code = plant_code.strip().upper()
@@ -200,7 +200,7 @@ class PlantInventoryViewSet(viewsets.ModelViewSet):
         GET /api/v1/inventory/inbound-forecast/?plant_code=BSP&material_category=COKING_COAL&horizon_days=30
         Forward-looking day-by-day inventory runway simulation.
         """
-        plant_code = request.query_params.get("plant_code")
+        plant_code = request.query_params.get("plant_code") or request.query_params.get("starving_plant")
         if not plant_code or not plant_code.strip():
             return Response(
                 {"error": "plant_code query parameter is required (e.g. ?plant_code=BSP)."},
@@ -302,7 +302,7 @@ class PlantInventoryViewSet(viewsets.ModelViewSet):
         """
         from decimal import Decimal, InvalidOperation
 
-        plant_code = request.query_params.get("plant_code")
+        plant_code = request.query_params.get("plant_code") or request.query_params.get("starving_plant")
         if not plant_code or not plant_code.strip():
             return Response(
                 {"error": "plant_code query parameter is required (e.g. ?plant_code=RSP)."},
